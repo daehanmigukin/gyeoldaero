@@ -1,16 +1,18 @@
 //! Notebook model for gyeoldaero: scanning a notebook folder, parsing notes, ordering,
 //! link resolution, diagnostics and configuration.
 //!
-//! The public API is being built by PRD-001. Items marked as stubs below exist so the
-//! PRD-001 tests compile; they are filled in during implementation.
+//! Core knows nothing of HTML, HTTP or watching (architecture.md → Shape).
 
 pub mod config;
 pub mod diagnostic;
 pub mod error;
+mod frontmatter;
+mod ignore;
 pub mod links;
+mod name;
 pub mod notebook;
 
-pub use config::{BuildConfig, Config, ServeConfig};
+pub use config::{BuildConfig, CONFIG_FILE, Config, ServeConfig};
 pub use diagnostic::{Diagnostic, Level};
 pub use error::CoreError;
 pub use links::Link;

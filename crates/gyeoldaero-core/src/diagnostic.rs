@@ -24,8 +24,39 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+impl fmt::Display for Level {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Level::Error => "error",
+            Level::Warning => "warning",
+        })
+    }
+}
+
+/// `error: cpu-architecture/caches: <message>`; the root note shows as `/`.
 impl fmt::Display for Diagnostic {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("PRD-001: Diagnostic Display")
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}: {}: {}",
+            self.level,
+            self.path.display_name(),
+            self.message
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_shows_level_path_and_message() {
+        let d = Diagnostic {
+            level: Level::Warning,
+            path: NotePath::default(),
+            message: "Something.".to_owned(),
+        };
+        assert_eq!(d.to_string(), "warning: /: Something.");
     }
 }
