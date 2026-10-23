@@ -1,7 +1,10 @@
 //! Helpers shared by the PRD-001 model tests: build small notebooks in temp dirs and
 //! query the loaded tree.
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "shared by several test binaries; each uses a subset"
+)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

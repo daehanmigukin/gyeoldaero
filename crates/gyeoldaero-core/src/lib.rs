@@ -7,6 +7,7 @@ pub mod config;
 pub mod diagnostic;
 pub mod error;
 mod frontmatter;
+mod fsread;
 mod ignore;
 pub mod links;
 mod name;

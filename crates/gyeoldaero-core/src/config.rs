@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::diagnostic::{Diagnostic, Level};
 use crate::error::CoreError;
+use crate::fsread::{self, Contents, MAX_FILE_BYTES};
 use crate::notebook::NotePath;
 
 /// Name of the configuration file in the notebook root.
@@ -76,21 +77,27 @@ impl Config {
         };
 
         let file = abs_root.join(CONFIG_FILE);
-        let meta = match fs::symlink_metadata(&file) {
-            Ok(meta) => meta,
+        let bytes = match fsread::read_regular(&file, MAX_FILE_BYTES) {
+            Ok(Contents::Bytes(bytes)) => bytes,
+            Ok(Contents::NotRegular) => {
+                config.warn(format!(
+                    "{CONFIG_FILE} is not a regular file (gyeoldaero doesn't follow symbolic \
+                     links), so the defaults are used. Replace it with a regular file."
+                ));
+                return Ok(config);
+            }
+            Ok(Contents::TooLarge) => {
+                return Err(CoreError::Config {
+                    path: file,
+                    message: "the file is larger than 8 MiB; is it really the config?".to_owned(),
+                });
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(config),
             Err(source) => return Err(CoreError::Io { path: file, source }),
         };
-        if !meta.is_file() {
-            config.warn(format!(
-                "{CONFIG_FILE} is not a regular file (gyeoldaero doesn't follow symbolic links), \
-                 so the defaults are used. Replace it with a regular file."
-            ));
-            return Ok(config);
-        }
-        let text = fs::read_to_string(&file).map_err(|source| CoreError::Io {
+        let text = String::from_utf8(bytes).map_err(|_| CoreError::Config {
             path: file.clone(),
-            source,
+            message: "the file isn't valid UTF-8; save it as UTF-8".to_owned(),
         })?;
         let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
         let table: toml::Table = toml::from_str(text).map_err(|e| CoreError::Config {
@@ -98,6 +105,14 @@ impl Config {
             message: e.to_string(),
         })?;
         config.apply(&table, &file, &abs_root)?;
+        if table.get("build").and_then(|b| b.get("out")).is_some() {
+            check_out(&config.build.out, &abs_root, &canonical).map_err(|message| {
+                CoreError::Config {
+                    path: file.clone(),
+                    message,
+                }
+            })?;
+        }
         Ok(config)
     }
 
@@ -163,10 +178,69 @@ impl Config {
 }
 
 /// `<cache dir>/gyeoldaero/<folder-name>-<8 hex chars of FNV-1a of the canonical root>`.
+///
+/// The folder name is cut to 200 bytes so the result stays under file-name limits.
 fn default_out(folder: &str, canonical_root: &Path) -> PathBuf {
     let base = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
     let hash = fnv1a_32(canonical_root.as_os_str().as_encoded_bytes());
+    let mut cut = folder.len().min(200);
+    while !folder.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let folder = &folder[..cut];
     base.join("gyeoldaero").join(format!("{folder}-{hash:08x}"))
+}
+
+/// Refuses a configured `build.out` that would point the build at the notebook or the
+/// user's files: the root, an ancestor of it, the home folder or an ancestor of it.
+/// `gyeoldaero.toml` comes from a synced, untrusted notebook.
+fn check_out(out: &Path, abs_root: &Path, canonical_root: &Path) -> Result<(), String> {
+    let mut outs = vec![out.to_path_buf()];
+    outs.extend(fs::canonicalize(out).ok());
+    let roots = [normalize(abs_root), canonical_root.to_path_buf()];
+    let homes: Vec<PathBuf> = dirs::home_dir()
+        .into_iter()
+        .flat_map(|h| {
+            let canonical = fs::canonicalize(&h).ok();
+            std::iter::once(h).chain(canonical)
+        })
+        .collect();
+    for o in &outs {
+        if roots.iter().any(|r| r.starts_with(o)) {
+            return Err(format!(
+                "`build.out` ({}) is the notebook folder or one of its parent folders; the \
+                 build would write over your notes. Choose a separate folder, or remove the \
+                 setting to use the default.",
+                out.display()
+            ));
+        }
+        if homes.iter().any(|h| h.starts_with(o)) {
+            return Err(format!(
+                "`build.out` ({}) is your home folder or one of its parent folders; the build \
+                 would write over your files. Choose a separate folder, or remove the setting \
+                 to use the default.",
+                out.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Removes `.` and resolves `..` lexically (without touching the file system).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(component);
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// 32-bit FNV-1a. Written out because `std`'s hasher isn't stable across Rust versions,
@@ -193,12 +267,9 @@ fn resolve_out(out: &str, root: &Path) -> Result<PathBuf, String> {
             })?;
             home.join(rest)
         }
-        None => root.join(out),
+        None => normalize(root).join(out),
     };
-    Ok(path
-        .components()
-        .filter(|c| !matches!(c, Component::CurDir))
-        .collect())
+    Ok(normalize(&path))
 }
 
 #[cfg(test)]

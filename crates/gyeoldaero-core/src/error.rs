@@ -2,14 +2,14 @@
 
 use std::path::PathBuf;
 
-/// A failure that stops loading a notebook or its configuration.
+/// A failure that stops loading a notebook or its configuration. Problems below the
+/// notebook root are diagnostics, not errors.
 ///
-/// Stub (PRD-001 tests): variants follow the plan (unreadable root, I/O, config parse)
-/// and may be refined during implementation.
+/// Messages don't repeat the source error; print the chain (`{:#}` with `anyhow`).
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
     /// The notebook root doesn't exist, isn't a directory, or can't be read.
-    #[error("cannot read notebook root {path}: {source}")]
+    #[error("cannot read notebook root {path}")]
     UnreadableRoot {
         /// The root that was given.
         path: PathBuf,
@@ -17,8 +17,8 @@ pub enum CoreError {
         #[source]
         source: std::io::Error,
     },
-    /// An I/O error while scanning.
-    #[error("cannot read {path}: {source}")]
+    /// `gyeoldaero.toml` exists but can't be read.
+    #[error("cannot read {path}")]
     Io {
         /// The file or directory being read.
         path: PathBuf,
@@ -26,8 +26,8 @@ pub enum CoreError {
         #[source]
         source: std::io::Error,
     },
-    /// `gyeoldaero.toml` exists but can't be parsed.
-    #[error("cannot parse {path}: {message}")]
+    /// `gyeoldaero.toml` can't be parsed or holds a value gyeoldaero refuses.
+    #[error("{path}: {message}")]
     Config {
         /// Path of the config file.
         path: PathBuf,

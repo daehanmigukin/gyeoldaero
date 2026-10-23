@@ -37,16 +37,25 @@ impl fmt::Display for Level {
     }
 }
 
-/// `error: cpu-architecture/caches: <message>`; the root note shows as `/`.
+impl Diagnostic {
+    /// Where the problem is, for people: the note path (`/` for the root), followed by the
+    /// folder on disk when it differs, e.g.
+    /// `cpu-architecture/caches  (010-cpu-architecture/010-caches)`.
+    pub fn location(&self) -> String {
+        let path = self.path.display_name();
+        let dir = self.dir.to_string_lossy();
+        if dir.is_empty() || dir == path {
+            path.to_owned()
+        } else {
+            format!("{path}  ({dir})")
+        }
+    }
+}
+
+/// `error: <location>: <message>`, see [`Diagnostic::location`].
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}: {}: {}",
-            self.level,
-            self.path.display_name(),
-            self.message
-        )
+        write!(f, "{}: {}: {}", self.level, self.location(), self.message)
     }
 }
 

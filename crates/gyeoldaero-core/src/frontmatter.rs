@@ -51,8 +51,9 @@ pub fn split(text: &str) -> Split {
                 return whole(
                     Level::Error,
                     format!(
-                        "The frontmatter in index.md is not valid YAML ({e}). The whole file is \
-                         shown as the body until the YAML between the --- lines is fixed."
+                        "The frontmatter in index.md is not valid YAML ({}). The whole file is \
+                         shown as the body until the YAML between the --- lines is fixed.",
+                        yaml_error(&e)
                     ),
                 );
             }
@@ -81,8 +82,8 @@ pub fn split(text: &str) -> Split {
         Some(_) => {
             problems.push((
                 Level::Error,
-                "The frontmatter `title` is a list or a map; it must be text. The slug is shown \
-                 instead until it is fixed, e.g. `title: My note`."
+                "The frontmatter `title` must be text, not a list, map or tagged value. The slug \
+                 is shown instead until it is fixed, e.g. `title: My note`."
                     .to_owned(),
             ));
             None
@@ -95,6 +96,19 @@ pub fn split(text: &str) -> Split {
         frontmatter,
         body: body.to_owned(),
         problems,
+    }
+}
+
+/// A YAML error with its position as a line of `index.md`: the block starts on line 2,
+/// after the opening `---`.
+fn yaml_error(e: &serde_yaml_ng::Error) -> String {
+    let text = e.to_string();
+    // serde_yaml_ng appends positions within the block (" at line 2 column 1, while
+    // parsing … at line 1 column 8"); keep only the description.
+    let what = text.split(" at line ").next().unwrap_or(&text);
+    match e.location() {
+        Some(loc) => format!("line {}, column {}: {what}", loc.line() + 1, loc.column()),
+        None => what.to_owned(),
     }
 }
 

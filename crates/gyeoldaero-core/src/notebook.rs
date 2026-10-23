@@ -1,6 +1,7 @@
 //! The loaded notebook tree: scanning, ordering, duplicate detection and link resolution.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,9 +11,14 @@ use crate::config::Config;
 use crate::diagnostic::{Diagnostic, Level};
 use crate::error::CoreError;
 use crate::frontmatter;
+use crate::fsread::{self, Contents, MAX_FILE_BYTES};
 use crate::ignore::is_ignored;
 use crate::links::{self, Link};
 use crate::name;
+
+/// Deepest nesting below the root that is scanned; deeper folders are skipped with an
+/// error. Also bounds the scanner's recursion.
+pub const MAX_DEPTH: usize = 64;
 
 /// File extensions (lowercase) that make a file an asset of its note. No SVG in v1.
 pub const ASSET_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "pdf", "txt"];
@@ -77,6 +83,40 @@ pub struct Note {
     pub assets: Vec<PathBuf>,
 }
 
+impl Note {
+    /// A note for a folder, before its `index.md` is read.
+    fn folder(
+        dir_name: String,
+        order: Option<u32>,
+        slug: String,
+        dir: PathBuf,
+        path: NotePath,
+    ) -> Note {
+        Note {
+            slug,
+            order,
+            dir_name,
+            dir,
+            path,
+            title: None,
+            body: String::new(),
+            frontmatter: serde_yaml_ng::Mapping::new(),
+            links: Vec::new(),
+            assets: Vec::new(),
+        }
+    }
+
+    /// A diagnostic attached to this note.
+    fn diagnostic(&self, level: Level, message: String) -> Diagnostic {
+        Diagnostic {
+            level,
+            path: self.path.clone(),
+            dir: self.dir.clone(),
+            message,
+        }
+    }
+}
+
 /// A scanned notebook.
 #[derive(Debug)]
 pub struct Notebook {
@@ -90,19 +130,22 @@ pub struct Notebook {
 }
 
 impl Notebook {
-    /// Scans `root` into a model. Content problems come back as diagnostics; only an
-    /// unusable root or I/O failure is an error.
+    /// Scans `root` into a model. Content problems, including I/O errors below the root,
+    /// come back as diagnostics; only an unusable root is an error.
     pub fn load(root: &Path, config: &Config) -> Result<(Notebook, Vec<Diagnostic>), CoreError> {
-        let meta = fs::metadata(root).map_err(|source| CoreError::UnreadableRoot {
+        let unusable = |source| CoreError::UnreadableRoot {
             path: root.to_path_buf(),
             source,
-        })?;
-        if !meta.is_dir() {
-            return Err(CoreError::UnreadableRoot {
-                path: root.to_path_buf(),
-                source: std::io::Error::new(std::io::ErrorKind::NotADirectory, "not a directory"),
-            });
+        };
+        if !fs::metadata(root).map_err(unusable)?.is_dir() {
+            return Err(unusable(std::io::Error::new(
+                std::io::ErrorKind::NotADirectory,
+                "not a directory",
+            )));
         }
+        // The root itself may be a symlink (e.g. `~/notes`): it is given by the user, not
+        // found inside the notebook.
+        let root_entries = read_entries(root).map_err(unusable)?;
         let root_name = root
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -123,20 +166,15 @@ impl Notebook {
             diagnostics: Vec::new(),
             output_dirs: output_dirs(root, &config.build.out),
         };
-        let root_note = Note {
-            slug: String::new(),
-            order: None,
-            dir_name: root_name,
-            path: NotePath::default(),
-            dir: PathBuf::new(),
-            title: None,
-            body: String::new(),
-            frontmatter: serde_yaml_ng::Mapping::new(),
-            links: Vec::new(),
-            assets: Vec::new(),
-        };
+        let root_note = Note::folder(
+            root_name,
+            None,
+            String::new(),
+            PathBuf::new(),
+            NotePath::default(),
+        );
         let root_id = scanner.add(root_note, None);
-        scanner.scan(root_id, root, Path::new(""))?;
+        scanner.scan_entries(root_id, root, 0, root_entries);
 
         let Scanner {
             mut notebook,
@@ -230,33 +268,30 @@ impl Notebook {
             let from = NoteId(i);
             let mut links = std::mem::take(&mut self.notes[i].links);
             for link in &mut links {
-                let path = self.notes[i].path.clone();
-                match self.resolve(from, &link.target) {
+                let (level, message) = match self.resolve(from, &link.target) {
                     Some((to, used_prefix)) => {
                         link.resolved = Some(to);
-                        if used_prefix {
-                            let slug_path = self.notes[to.0].path.display_name().to_owned();
-                            diagnostics.push(Diagnostic {
-                                level: Level::Warning,
-                                path,
-                                dir: PathBuf::new(),
-                                message: format!(
-                                    "The link [[{}]] uses order prefixes. Link by slug instead, e.g. [[{slug_path}]]: prefixed links break when notes are renumbered.",
-                                    link.target
-                                ),
-                            });
+                        if !used_prefix {
+                            continue;
                         }
+                        let slug_path = self.notes[to.0].path.display_name();
+                        (
+                            Level::Warning,
+                            format!(
+                                "The link [[{}]] uses order prefixes. Link by slug instead, e.g. [[{slug_path}]]: prefixed links break when notes are renumbered.",
+                                link.target
+                            ),
+                        )
                     }
-                    None => diagnostics.push(Diagnostic {
-                        level: Level::Error,
-                        path,
-                        dir: PathBuf::new(),
-                        message: format!(
+                    None => (
+                        Level::Error,
+                        format!(
                             "The link [[{}]] doesn't point to any note. Check the slugs in the path (relative links start with ./ or ../), or create the note.",
                             link.target
                         ),
-                    }),
-                }
+                    ),
+                };
+                diagnostics.push(self.notes[i].diagnostic(level, message));
             }
             self.notes[i].links = links;
         }
@@ -285,6 +320,37 @@ fn output_dirs(root: &Path, out: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// A folder's entries without following symlinks, sorted by name. The outer error means
+/// the folder itself can't be read; per-entry errors come back inside.
+type Entries = Vec<std::io::Result<(OsString, fs::FileType)>>;
+
+fn read_entries(dir: &Path) -> std::io::Result<Entries> {
+    let mut entries: Entries = fs::read_dir(dir)?
+        .map(|entry| {
+            let entry = entry?;
+            Ok((entry.file_name(), entry.file_type()?))
+        })
+        .collect();
+    entries.sort_by(|a, b| match (a, b) {
+        (Ok(a), Ok(b)) => a.0.cmp(&b.0),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        (Err(_), Err(_)) => std::cmp::Ordering::Equal,
+    });
+    Ok(entries)
+}
+
+/// A child folder found while scanning, before it becomes a note.
+struct Subfolder {
+    dir_name: String,
+    order: Option<u32>,
+    slug: String,
+    /// Path to read it from.
+    path: PathBuf,
+    /// Relative to the root, as on disk.
+    rel: PathBuf,
+}
+
 struct Scanner {
     notebook: Notebook,
     diagnostics: Vec<Diagnostic>,
@@ -304,33 +370,69 @@ impl Scanner {
     }
 
     fn diag(&mut self, id: NoteId, level: Level, message: String) {
-        let path = self.notebook.notes[id.0].path.clone();
-        self.diagnostics.push(Diagnostic {
-            level,
-            path,
-            dir: PathBuf::new(),
-            message,
-        });
+        let diagnostic = self.notebook.notes[id.0].diagnostic(level, message);
+        self.diagnostics.push(diagnostic);
     }
 
-    /// Reads one note folder: its body, assets, problems, then its children.
-    fn scan(&mut self, id: NoteId, dir: &Path, rel: &Path) -> Result<(), CoreError> {
-        let io = |path: &Path| {
-            let path = path.to_path_buf();
-            move |source| CoreError::Io { path, source }
-        };
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(dir).map_err(io(dir))? {
-            let entry = entry.map_err(io(dir))?;
-            let file_type = entry.file_type().map_err(io(&entry.path()))?;
-            entries.push((entry.file_name(), file_type));
+    /// Scans a folder below the root. Problems reading it are diagnostics on its note.
+    fn scan(&mut self, id: NoteId, dir: &Path, depth: usize) {
+        // Narrows (doesn't close) the race of the folder being swapped for a symlink since
+        // its parent was read. See PRD-001 Notes.
+        match fs::symlink_metadata(dir) {
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => {
+                self.diag(
+                    id,
+                    Level::Warning,
+                    "This folder was replaced by a symbolic link or a file during the scan and is not read (gyeoldaero doesn't follow links).".to_owned(),
+                );
+                return;
+            }
+            Err(e) => {
+                self.diag(
+                    id,
+                    Level::Error,
+                    format!("This folder can't be read ({e}). Check its permissions."),
+                );
+                return;
+            }
         }
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        match read_entries(dir) {
+            Ok(entries) => self.scan_entries(id, dir, depth, entries),
+            Err(e) => self.diag(
+                id,
+                Level::Error,
+                format!("This folder can't be read ({e}), so its body and notes are missing. Check its permissions."),
+            ),
+        }
+    }
 
+    /// Reads one note folder's entries: its body, assets, problems, then its children.
+    fn scan_entries(&mut self, id: NoteId, dir: &Path, depth: usize, entries: Entries) {
+        let rel = self.notebook.notes[id.0].dir.clone();
         let mut index = None;
-        let mut index_symlinked = false;
-        let mut subdirs = Vec::new();
-        for (os_name, file_type) in entries {
+        let mut index_reported = false;
+        let mut subfolders = Vec::new();
+        let mut too_deep = Vec::new();
+        for entry in entries {
+            let (os_name, file_type) = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    self.diag(
+                        id,
+                        Level::Error,
+                        format!(
+                            "An entry in this folder can't be read ({e}). Check its permissions."
+                        ),
+                    );
+                    continue;
+                }
+            };
+            // Ignore rules first: every pattern is ASCII, so the lossy name is enough, and
+            // an ignored temp file with a non-UTF-8 name stays ignored.
+            if is_ignored(&os_name.to_string_lossy()) {
+                continue;
+            }
             let Some(entry_name) = os_name.to_str() else {
                 self.diag(
                     id,
@@ -342,43 +444,58 @@ impl Scanner {
                 );
                 continue;
             };
-            if is_ignored(entry_name) {
-                continue;
-            }
             let path = dir.join(entry_name);
             if file_type.is_symlink() {
-                if entry_name == NOTE_FILE {
-                    index_symlinked = true;
-                    self.diag(
-                        id,
-                        Level::Warning,
-                        format!(
-                            "{NOTE_FILE} is a symbolic link and is not read (gyeoldaero doesn't follow links), so this note has an empty body. Replace it with a regular file."
-                        ),
-                    );
+                let message = if entry_name == NOTE_FILE {
+                    index_reported = true;
+                    format!(
+                        "{NOTE_FILE} is a symbolic link and is not read (gyeoldaero doesn't follow links), so this note has an empty body. Replace it with a regular file."
+                    )
                 } else {
-                    self.diag(
-                        id,
-                        Level::Warning,
-                        format!(
-                            "{entry_name} is a symbolic link and is skipped (gyeoldaero doesn't follow links). Replace it with the real folder or file."
-                        ),
-                    );
-                }
+                    format!(
+                        "{entry_name} is a symbolic link and is skipped (gyeoldaero doesn't follow links). Replace it with the real folder or file."
+                    )
+                };
+                self.diag(id, Level::Warning, message);
                 continue;
             }
             if file_type.is_dir() {
                 let child_rel = rel.join(entry_name);
-                if !self.output_dirs.contains(&child_rel) {
-                    subdirs.push((entry_name.to_owned(), path, child_rel));
+                if self.output_dirs.contains(&child_rel) {
+                    continue;
+                }
+                if depth + 1 > MAX_DEPTH {
+                    too_deep.push(entry_name.to_owned());
+                    continue;
+                }
+                let (order, slug) = name::split_prefix(entry_name);
+                if slug.starts_with('.') {
+                    self.diag(
+                        id,
+                        Level::Error,
+                        format!("Folder {entry_name} gives the slug `{slug}`, which can't be used: slugs can't start with a dot. Rename the folder; it is skipped until then."),
+                    );
+                    continue;
+                }
+                subfolders.push(Subfolder {
+                    dir_name: entry_name.to_owned(),
+                    order,
+                    slug: slug.to_owned(),
+                    path,
+                    rel: child_rel,
+                });
+                continue;
+            }
+            if entry_name == NOTE_FILE {
+                if file_type.is_file() {
+                    index = Some(path);
+                } else {
+                    index_reported = true;
+                    self.diag(id, Level::Warning, not_regular_message());
                 }
                 continue;
             }
             if !file_type.is_file() {
-                continue;
-            }
-            if entry_name == NOTE_FILE {
-                index = Some(path);
                 continue;
             }
             let ext = Path::new(entry_name)
@@ -389,20 +506,14 @@ impl Scanner {
                 Some("md") if entry_name.eq_ignore_ascii_case(NOTE_FILE) => self.diag(
                     id,
                     Level::Warning,
-                    format!(
-                        "{entry_name} is ignored: the note file must be named {NOTE_FILE} exactly, in lowercase. Rename it."
-                    ),
+                    format!("{entry_name} is ignored: the note file must be named {NOTE_FILE} exactly, in lowercase. Rename it."),
                 ),
                 Some("md") => {
-                    let stem = entry_name
-                        .get(..entry_name.len().saturating_sub(3))
-                        .unwrap_or(entry_name);
+                    let stem = entry_name.get(..entry_name.len().saturating_sub(3)).unwrap_or(entry_name);
                     self.diag(
                         id,
                         Level::Warning,
-                        format!(
-                            "{entry_name} is ignored: only {NOTE_FILE} is read. If it is meant to be a note, move it to {stem}/{NOTE_FILE}."
-                        ),
+                        format!("{entry_name} is ignored: only {NOTE_FILE} is read. If it is meant to be a note, move it to {stem}/{NOTE_FILE}."),
                     );
                 }
                 Some(ext) if ASSET_EXTENSIONS.contains(&ext) => {
@@ -413,80 +524,75 @@ impl Scanner {
         }
 
         match index {
-            Some(path) => self.read_body(id, &path)?,
-            None if !index_symlinked => {
-                let shown = self.notebook.notes[id.0].path.display_name().to_owned();
-                self.diag(
-                    id,
-                    Level::Warning,
-                    format!(
-                        "{shown} has no {NOTE_FILE}, so it is shown with an empty body. Add an {NOTE_FILE} to give it one."
-                    ),
-                );
-            }
+            Some(path) => self.read_body(id, &path),
+            None if !index_reported => self.missing_index(id),
             None => {}
         }
+        if !too_deep.is_empty() {
+            self.diag(
+                id,
+                Level::Error,
+                format!(
+                    "Folders {} are nested deeper than {MAX_DEPTH} levels below the notebook root and are skipped, with everything inside them. Move them higher up.",
+                    join_names(&too_deep)
+                ),
+            );
+        }
+        for (child, path) in self.add_children(id, subfolders) {
+            self.scan(child, &path, depth + 1);
+        }
+    }
 
-        // Children in sibling order; then duplicates; then recurse.
-        let parent_path = self.notebook.notes[id.0].path.clone();
-        let mut kids: Vec<Note> = subdirs
-            .iter()
-            .map(|(dir_name, _, _)| {
-                let (order, slug) = name::split_prefix(dir_name);
-                Note {
-                    slug: slug.to_owned(),
-                    order,
-                    dir_name: dir_name.clone(),
-                    path: parent_path.child(slug),
-                    dir: PathBuf::new(),
-                    title: None,
-                    body: String::new(),
-                    frontmatter: serde_yaml_ng::Mapping::new(),
-                    links: Vec::new(),
-                    assets: Vec::new(),
-                }
-            })
-            .collect();
-        let mut order: Vec<usize> = (0..kids.len()).collect();
-        order.sort_by(|a, b| {
-            let (x, y) = (&kids[*a], &kids[*b]);
+    /// Adds subfolders as children in sibling order, reports duplicate slugs, and returns
+    /// each new child with the path to scan it from.
+    fn add_children(
+        &mut self,
+        id: NoteId,
+        mut subfolders: Vec<Subfolder>,
+    ) -> Vec<(NoteId, PathBuf)> {
+        subfolders.sort_by(|a, b| {
             name::sibling_cmp(
-                (x.order, &x.slug, &x.dir_name),
-                (y.order, &y.slug, &y.dir_name),
+                (a.order, &a.slug, &a.dir_name),
+                (b.order, &b.slug, &b.dir_name),
             )
         });
-
-        let mut placed = Vec::new();
-        let mut clashes: HashMap<String, Vec<String>> = HashMap::new();
-        let mut clash_order = Vec::new();
-        for i in order {
-            let note = std::mem::replace(&mut kids[i], empty_note());
-            let key = name::key(&note.slug);
-            let dir_key = note.order.map(|_| name::key(&note.dir_name));
-            let dir_name = note.dir_name.clone();
+        let parent_path = self.notebook.notes[id.0].path.clone();
+        let mut added = Vec::new();
+        let mut clashes: Vec<(String, Vec<String>)> = Vec::new();
+        for sub in subfolders {
+            let key = name::key(&sub.slug);
+            let dir_key = sub.order.map(|_| name::key(&sub.dir_name));
+            let dir_name = sub.dir_name.clone();
+            let note = Note::folder(
+                sub.dir_name,
+                sub.order,
+                sub.slug.clone(),
+                sub.rel,
+                parent_path.child(&sub.slug),
+            );
             let child = self.add(note, Some(id));
             self.notebook.children[id.0].push(child);
-            let first = self.notebook.by_slug[id.0]
+            let first = *self.notebook.by_slug[id.0]
                 .entry(key.clone())
                 .or_insert(child);
-            if *first != child {
-                let first_dir = self.notebook.notes[first.0].dir_name.clone();
-                let names = clashes.entry(key.clone()).or_insert_with(|| {
-                    clash_order.push(key);
-                    vec![first_dir]
-                });
-                names.push(dir_name);
+            if first != child {
+                match clashes.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, names)) => names.push(dir_name),
+                    None => {
+                        let first_dir = self.notebook.notes[first.0].dir_name.clone();
+                        clashes.push((key, vec![first_dir, dir_name]));
+                    }
+                }
             }
             if let Some(dir_key) = dir_key {
                 self.notebook.by_dir_name[id.0]
                     .entry(dir_key)
                     .or_insert(child);
             }
-            placed.push((child, i));
+            added.push((child, sub.path));
         }
-        for key in clash_order {
-            let names = clashes.remove(&key).unwrap_or_default();
-            let slug = name::split_prefix(names.first().map_or("", String::as_str)).1;
+        for (_, names) in clashes {
+            let slug = names.first().map_or("", |n| name::split_prefix(n).1);
             self.diag(
                 id,
                 Level::Error,
@@ -496,18 +602,47 @@ impl Scanner {
                 ),
             );
         }
-        for (child, i) in placed {
-            let (_, path, child_rel) = &subdirs[i];
-            self.scan(child, path, child_rel)?;
-        }
-        Ok(())
+        added
     }
 
-    fn read_body(&mut self, id: NoteId, path: &Path) -> Result<(), CoreError> {
-        let bytes = fs::read(path).map_err(|source| CoreError::Io {
-            path: path.to_path_buf(),
-            source,
-        })?;
+    fn missing_index(&mut self, id: NoteId) {
+        let shown = self.notebook.notes[id.0].path.display_name().to_owned();
+        self.diag(
+            id,
+            Level::Warning,
+            format!("{shown} has no {NOTE_FILE}, so it is shown with an empty body. Add an {NOTE_FILE} to give it one."),
+        );
+    }
+
+    fn read_body(&mut self, id: NoteId, path: &Path) {
+        let bytes = match fsread::read_regular(path, MAX_FILE_BYTES) {
+            Ok(Contents::Bytes(bytes)) => bytes,
+            Ok(Contents::NotRegular) => {
+                self.diag(id, Level::Warning, not_regular_message());
+                return;
+            }
+            Ok(Contents::TooLarge) => {
+                self.diag(
+                    id,
+                    Level::Error,
+                    format!("{NOTE_FILE} is larger than 8 MiB and is not read, so this note has an empty body. Split it into smaller notes."),
+                );
+                return;
+            }
+            // Deleted between listing and reading (an editor or sync tool saving).
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.missing_index(id);
+                return;
+            }
+            Err(e) => {
+                self.diag(
+                    id,
+                    Level::Error,
+                    format!("{NOTE_FILE} can't be read ({e}), so this note has an empty body. Check its permissions."),
+                );
+                return;
+            }
+        };
         let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
         let text = match std::str::from_utf8(bytes) {
             Ok(text) => text.to_owned(),
@@ -515,9 +650,7 @@ impl Scanner {
                 self.diag(
                     id,
                     Level::Warning,
-                    format!(
-                        "{NOTE_FILE} isn't valid UTF-8; unreadable bytes are shown as replacement characters. Save it as UTF-8."
-                    ),
+                    format!("{NOTE_FILE} isn't valid UTF-8; unreadable bytes are shown as replacement characters. Save it as UTF-8."),
                 );
                 String::from_utf8_lossy(bytes).into_owned()
             }
@@ -536,23 +669,13 @@ impl Scanner {
         note.frontmatter = split.frontmatter;
         note.links = links::extract(&split.body);
         note.body = split.body;
-        Ok(())
     }
 }
 
-fn empty_note() -> Note {
-    Note {
-        slug: String::new(),
-        order: None,
-        dir_name: String::new(),
-        path: NotePath::default(),
-        dir: PathBuf::new(),
-        title: None,
-        body: String::new(),
-        frontmatter: serde_yaml_ng::Mapping::new(),
-        links: Vec::new(),
-        assets: Vec::new(),
-    }
+fn not_regular_message() -> String {
+    format!(
+        "{NOTE_FILE} is not a regular file (it may be a pipe, or was replaced by a link while being read) and is not read, so this note has an empty body. Replace it with a regular file."
+    )
 }
 
 /// `a and b`, `a, b and c`.
