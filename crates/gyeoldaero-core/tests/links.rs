@@ -211,3 +211,34 @@ fn links_next_to_code_are_still_found() {
     assert_eq!(targets, ["a/sibling", "b/c"]);
     assert!(diags.is_empty(), "{:?}", show(&diags));
 }
+
+// PRD-001 AC8
+#[test]
+fn prefixed_links_resolve_with_a_warning_to_link_by_slug() {
+    // (case, source note dir on disk, link text, expected resolved slug path)
+    let cases: &[(&str, &str, &str, &str)] = &[
+        ("absolute, prefixed note", "a/child", "010-b", "b"),
+        ("absolute, prefixed parent", "a/child", "010-b/c", "b/c"),
+        ("relative, prefixed", "a/child", "../../010-b/c", "b/c"),
+        ("with label", "a/child", "010-b|bee", "b"),
+    ];
+
+    for (case, source, inner, resolved) in cases {
+        let body = format!("See [[{inner}]] here.\n");
+        let (nb, diags) = notebook_with_source(source, &body);
+        let note = nb.get(source_id(&nb, source));
+        assert_eq!(note.links.len(), 1, "{case}: links {:?}", note.links);
+        let link = &note.links[0];
+        let got = link.resolved.map(|id| nb.get(id).path.as_str().to_owned());
+        assert_eq!(got.as_deref(), Some(*resolved), "{case}: resolved");
+        let target = inner.split('|').next().unwrap_or(inner);
+        assert_eq!(link.target, target, "{case}: target kept as written");
+        assert!(errors(&diags).is_empty(), "{case}: {:?}", show(&diags));
+        assert!(
+            has_diag(&diags, Level::Warning, &[target, resolved]),
+            "{case}: expected a warning naming {target} and the slug path {resolved}, got {:?}",
+            show(&diags)
+        );
+        assert_eq!(diags.len(), 1, "{case}: {:?}", show(&diags));
+    }
+}

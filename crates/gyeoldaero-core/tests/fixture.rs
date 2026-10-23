@@ -7,12 +7,11 @@
 //! - Bodies: fixture `index.md` files are the mockup body plus one trailing newline. The
 //!   model body is compared with one trailing `\n` removed (if present), so the test
 //!   holds whether or not the loader keeps the file's final newline.
-//! - Sibling order: the mockup lists siblings in a hand-picked order, but the fixture
-//!   only gives order prefixes to the children of `cpu-architecture`. Elsewhere the
-//!   model's order comes from the ordering rule (natural sort, AC2), which differs from
-//!   the mockup's. So children are compared as sets by slug, and order is checked
-//!   exactly only where every sibling is prefixed. (Spec ambiguity raised in the
-//!   PRD-001 test report.)
+//! - Sibling order follows AC2, not the mockup's hand-picked order. Where every sibling
+//!   is prefixed (the root, `cpu-architecture`) the prefixes reproduce the mockup's
+//!   order, so it is compared exactly. Elsewhere siblings are unprefixed and sort
+//!   naturally; the fixture's slugs there have no digits, so natural sort is plain
+//!   string order.
 //! - The root's own slug is not compared: the mockup calls it `notebook`, and the
 //!   architecture doc doesn't say what the root note's slug is.
 
@@ -189,10 +188,13 @@ fn compare(nb: &Notebook, id: NoteId, mock: &MockNote, path: &str) {
     let mut want: Vec<&str> = mock.children.iter().map(|c| c.slug.as_str()).collect();
     let all_prefixed = children.iter().all(|c| nb.get(*c).order.is_some());
     if !all_prefixed {
-        got.sort_unstable();
+        assert!(
+            want.iter().all(|s| !s.chars().any(|c| c.is_ascii_digit())),
+            "{path}: natural sort is plain string order only without digits"
+        );
         want.sort_unstable();
     }
-    assert_eq!(got, want, "{path}: children");
+    assert_eq!(got, want, "{path}: children in AC2 order");
 
     for child_mock in &mock.children {
         let child = children
@@ -240,6 +242,10 @@ fn fixture_order_prefixes_match() {
     let (nb, _) = load_fixture();
     // (slug path, expected order, expected folder name)
     let prefixed: &[(&str, u32, &str)] = &[
+        ("cpu-architecture", 10, "010-cpu-architecture"),
+        ("korean-infosec-law", 20, "020-korean-infosec-law"),
+        ("homelab", 30, "030-homelab"),
+        ("inbox", 40, "040-inbox"),
         ("cpu-architecture/caches", 10, "010-caches"),
         ("cpu-architecture/pipelining", 20, "020-pipelining"),
         (
@@ -264,6 +270,32 @@ fn fixture_order_prefixes_match() {
         }
     }
     assert_eq!(common::all_notes(&nb).len(), 23, "fixture has 23 notes");
+}
+
+// PRD-001 AC1, AC2
+#[test]
+fn fixture_sibling_order_follows_ac2() {
+    let (nb, _) = load_fixture();
+    // Prefixed: same as the mockup.
+    assert_eq!(
+        common::child_slugs(&nb, nb.root()),
+        ["cpu-architecture", "korean-infosec-law", "homelab", "inbox"]
+    );
+    // Unprefixed: natural sort, which differs from the mockup's order.
+    let law = nb
+        .by_path("korean-infosec-law")
+        .expect("korean-infosec-law");
+    assert_eq!(
+        common::child_slugs(&nb, law),
+        ["credit-information-act", "network-act", "pipa"]
+    );
+    let pipelining = nb
+        .by_path("cpu-architecture/pipelining")
+        .expect("pipelining");
+    assert_eq!(
+        common::child_slugs(&nb, pipelining),
+        ["branch-prediction", "hazards"]
+    );
 }
 
 // PRD-001 AC1

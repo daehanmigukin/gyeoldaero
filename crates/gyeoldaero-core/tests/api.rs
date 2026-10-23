@@ -61,3 +61,56 @@ fn unusable_root_is_a_hard_error() {
     let file = nb.path("index.md");
     assert!(Notebook::load(&file, &config).is_err(), "root is a file");
 }
+
+// PRD-001 AC12
+#[test]
+fn relative_build_out_resolves_against_the_notebook_root() {
+    // (case, `out` as written, expected path relative to the root)
+    let cases: &[(&str, &str, &str)] = &[
+        ("bare name", "_site", "_site"),
+        ("dot slash", "./build/site", "build/site"),
+    ];
+
+    for (case, out, rel) in cases {
+        let nb = TempNotebook::new();
+        nb.file("gyeoldaero.toml", &format!("[build]\nout = \"{out}\"\n"));
+        let config = Config::load(nb.root()).expect("config");
+        let root = std::path::absolute(nb.root()).expect("absolute root");
+        assert!(
+            config.build.out.is_absolute(),
+            "{case}: {:?}",
+            config.build.out
+        );
+        assert_eq!(
+            config.build.out.components().collect::<Vec<_>>(),
+            root.join(rel).components().collect::<Vec<_>>(),
+            "{case}"
+        );
+    }
+}
+
+// PRD-001 AC12
+#[test]
+fn relative_build_out_inside_the_notebook_is_ignored_when_scanning() {
+    let nb = TempNotebook::new();
+    nb.note("note", "Note.\n");
+    nb.note("_site", "<html>\n");
+    nb.file("gyeoldaero.toml", "[build]\nout = \"_site\"\n");
+    let config = Config::load(nb.root()).expect("config");
+    let (notebook, diags) = nb.load_with(&config);
+    assert_eq!(common::all_paths(&notebook), ["note"]);
+    assert!(diags.is_empty(), "{:?}", common::show(&diags));
+}
+
+// PRD-001 AC7 (CRLF everywhere)
+#[test]
+fn config_with_crlf_line_endings_loads() {
+    let nb = TempNotebook::new();
+    nb.file(
+        "gyeoldaero.toml",
+        "name = \"crlf\"\r\n[serve]\r\nbind = \"0.0.0.0:1\"\r\n",
+    );
+    let config = Config::load(nb.root()).expect("config");
+    assert_eq!(config.name, "crlf");
+    assert_eq!(config.serve.bind.to_string(), "0.0.0.0:1");
+}
