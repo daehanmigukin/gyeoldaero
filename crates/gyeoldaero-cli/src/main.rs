@@ -19,7 +19,10 @@ enum Command {
     /// Build, watch and serve a notebook.
     Serve,
     /// Report problems in a notebook.
-    Check,
+    Check {
+        /// Notebook root. Defaults to the current directory.
+        path: Option<std::path::PathBuf>,
+    },
     /// Create a note (folder + index.md).
     New,
 }
@@ -30,7 +33,7 @@ impl Command {
         match self {
             Command::Build => "PRD-002",
             Command::Serve => "PRD-005",
-            Command::Check => "PRD-001",
+            Command::Check { .. } => "PRD-001",
             Command::New => "PRD-006",
         }
     }

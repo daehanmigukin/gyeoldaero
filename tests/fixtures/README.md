@@ -7,3 +7,9 @@ copied verbatim. The children of `cpu-architecture` carry order prefixes (`010-`
 
 Tests depend on this fixture (model tests, render snapshots, e2e). Changing it changes
 their expected output, so do it on purpose and review the resulting snapshot diffs.
+
+`broken/` is a small notebook with known problems for `gyeoldaero check` (PRD-001 AC9):
+duplicate slugs (`010-dup`, `dup`), a broken link (`links`), malformed frontmatter
+(`bad-frontmatter`), a folder without `index.md` (`no-index`) and two stray `.md` files
+(`stray`). Expected: 3 errors, 3 warnings. Change it together with
+`crates/gyeoldaero-cli/tests/check.rs`.
