@@ -47,8 +47,11 @@ Pinned choices; changing one needs an ADR.
 | Need | Crate | Why |
 |---|---|---|
 | CLI | `clap` (derive) | Standard. |
-| Markdown | `comrak` | GFM, built-in wikilink extension, raw HTML can be disabled. |
-| Frontmatter | `serde_yaml_ng` or hand-split `---` + `serde_yaml_ng` | Small surface. Re-evaluate maintenance status at PRD-001. |
+| Markdown | `comrak` | GFM, built-in wikilink extension, raw HTML can be disabled. Also used by core for link extraction ([ADR 0002](adr/0002-notebook-model-deps.md)). |
+| Frontmatter | hand-split `---` + `serde_yaml_ng` | Small surface. Chosen in PRD-001. |
+| Config | `toml` | `gyeoldaero.toml`, read as a table so unknown settings can be reported. [ADR 0002](adr/0002-notebook-model-deps.md). |
+| Platform dirs | `dirs` | Cache dir (default output) and `~`. [ADR 0002](adr/0002-notebook-model-deps.md). |
+| Unicode | `unicode-normalization` | NFC comparison keys. [ADR 0002](adr/0002-notebook-model-deps.md). |
 | Templates | `minijinja` | Runtime templates, so themes can override them later. Default templates embedded with `include_str!`. |
 | Watching | `notify` + `notify-debouncer-full` | Cross-platform, debounced events. |
 | HTTP | `axum` + `tower-http` (`ServeDir`, headers) | Small, well-maintained. |
@@ -57,6 +60,7 @@ Pinned choices; changing one needs an ADR.
 | Logging | `tracing` + `tracing-subscriber` | Structured, leveled. |
 | Snapshot tests | `insta` | Golden tests for rendered HTML. |
 | Temp dirs in tests | `tempfile` | |
+| CLI tests | `assert_cmd` | [ADR 0002](adr/0002-notebook-model-deps.md). |
 
 Edition 2024. Toolchain: stable, pinned in `rust-toolchain.toml`.
 
@@ -77,6 +81,10 @@ Edition 2024. Toolchain: stable, pinned in `rust-toolchain.toml`.
   (`*.swp`, `*.swo`, `*~`, `4913`), and the output directory if it sits inside the
   notebook.
 - Symlinks are not followed. They are reported by `check`.
+- A folder whose slug would start with `.` (e.g. `001-..`, `002-.git`) is an error and is
+  skipped: such a slug would be hidden, or a path traversal once written as a URL path.
+- Limits: nesting deeper than 64 levels below the root is an error and the deeper folders
+  are skipped; an `index.md` over 8 MiB is an error and the note gets an empty body.
 
 ### Folder names, slugs, order
 
@@ -85,6 +93,9 @@ Edition 2024. Toolchain: stable, pinned in `rust-toolchain.toml`.
 - Slugs must match `^[a-z0-9][a-z0-9-]*$` after lowercasing for URLs. Other characters
   (including Hangul) are allowed in folder names; their URL form is percent-encoded and
   `check` does not complain. Display always uses the slug as written.
+- Slugs are compared by a key: Unicode NFC normalization, then lowercasing. So an NFD
+  folder name matches an NFC link, and `Caches` and `caches` are the same slug.
+  Duplicate detection, path lookups and link resolution all use this key (PRD-001).
 - Two siblings with the same slug (e.g. `010-x` and `x`) are an error.
 - Sibling order: prefixed notes first, by number, then unprefixed notes by natural sort
   (so `note-2` < `note-10`). Ties on number break by slug.
@@ -95,25 +106,36 @@ Optional YAML block at the top of `index.md`, delimited by `---` lines. v1 field
 
 | Field | Type | Effect |
 |---|---|---|
-| `title` | string | Shown instead of the slug in headings and rows. |
+| `title` | string | Shown instead of the slug in headings and rows. A number or boolean is converted to a string; a list or map is a `check` error. |
 
 Unknown fields are preserved in the model and ignored by the renderer, so later features
 can use them. Malformed frontmatter is a `check` error; the note renders with the whole
-file as body.
+file as body. An opening `---` with no closing `---` is not frontmatter (a leading `---`
+can be a Markdown horizontal rule): the whole file is the body and `check` warns.
+CRLF line endings are accepted everywhere (frontmatter, body, config).
 
 ### Links
 
 - Syntax: `[[path]]` or `[[path|label]]`. Path is from the notebook root, using slugs
   (prefixes not needed). `[[./child]]` and `[[../sibling]]` are relative to the current note.
+- A link written with order prefixes (`[[010-caches]]`) still resolves, but `check` warns
+  and asks for the slug: prefixed links break when notes are renumbered.
 - A link that doesn't resolve renders as a visibly broken link (no `href`) and is an error
   in `check`.
 - The model keeps outgoing links per note so backlinks can be added without rescanning.
 
 ### Diagnostics
 
-`gyeoldaero-core` returns diagnostics (level, path, message) instead of failing on content
-problems. Only unreadable notebook roots and I/O errors are hard errors. `gyeoldaero check`
-prints diagnostics and exits non-zero on any error-level diagnostic.
+`gyeoldaero-core` returns diagnostics (level, note path, folder on disk, message) instead of
+failing on content problems. Only an unusable notebook root or `gyeoldaero.toml` is a hard
+error. Below the root, an I/O error (unreadable folder or file) is an error diagnostic on
+its note and the scan continues; an `index.md` that disappears mid-scan counts as missing.
+`gyeoldaero check` prints diagnostics and exits non-zero on any error-level diagnostic. It
+escapes control and bidi characters in what it prints, since file names and link targets
+are untrusted.
+
+For cases the rules above don't cover: be lenient with what people type, warn where
+something could break silently later, and error only when a note can't be understood.
 
 ---
 
@@ -162,10 +184,26 @@ name = "notebook"          # shown at the root of the path bar; default: folder 
 [serve]
 bind = "127.0.0.1:4321"
 [build]
-out = "~/.cache/gyeoldaero/<notebook-name>"   # default under XDG cache dir
+out = "~/.cache/gyeoldaero/notebook-1a2b3c4d"   # default, see below
 ```
 
-CLI flags override config. Config is parsed by `gyeoldaero-core`.
+A `build.out` that is the notebook root, an ancestor of it, the home directory or an
+ancestor of it is a config error: a synced notebook must not be able to point the build at
+the user's files. So is a `build.out` inside the notebook whose folder (or anything below
+it) holds an `index.md`: it would hide those notes from the scan. The build writes a marker
+file into the output directory it creates and refuses to build into, or delete anything
+from, a non-empty directory without it (PRD-002). `gyeoldaero.toml` over 8 MiB is a config error.
+
+The default `out` is `<cache dir>/gyeoldaero/<folder-name>-<hash>`: the cache dir comes
+from `dirs::cache_dir()` (`$XDG_CACHE_HOME` or `~/.cache` on Linux, `~/Library/Caches` on
+macOS), `<folder-name>` is the notebook folder's name and `<hash>` is 8 hex characters of
+a 32-bit FNV-1a hash of the canonical absolute notebook path, so two notebooks with the
+same folder name don't share an output dir. `name` is display-only and never part of a
+path.
+
+CLI flags override config. Config is parsed by `gyeoldaero-core`. A relative `build.out`
+in `gyeoldaero.toml` resolves against the notebook root; a relative `--out` on the command
+line resolves against the current directory.
 
 ## Security notes
 
@@ -177,7 +215,11 @@ user-written but may include pasted material. Treat it as untrusted input to the
 - Allowed asset extensions v1: `png jpg jpeg gif webp avif pdf txt`. **No SVG** in v1
   (it can carry scripts).
 - No symlink following during scan or copy; canonicalize and verify every output path is
-  inside the output root before writing.
+  inside the output root before writing. Files are opened and checked to be the same
+  regular file `lstat` saw. Folders are re-checked with `symlink_metadata` before
+  `read_dir`, which narrows but doesn't close the race of a folder being swapped for a
+  symlink; that must be closed (`openat` with `O_NOFOLLOW`) before PRD-002 renders any
+  page.
 - The server never serves anything outside the output directory and never serves the
   notebook directly.
 - No requests to third parties from rendered pages.

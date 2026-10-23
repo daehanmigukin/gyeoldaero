@@ -51,8 +51,18 @@ all without JavaScript.
 5. The build removes stale files from previous builds in the output directory (pages for
    deleted notes) but never deletes anything outside it, and refuses to use an output
    directory that contains the notebook or is the notebook.
+   **Marker file** (Ellie, 2026-10-23): when the build creates the output directory it
+   writes a gyeoldaero marker file into it. It refuses to build into, or delete anything
+   from, a non-empty directory without that marker. This covers a `build.out` pointing
+   outside the notebook (e.g. `~/Documents` from a synced `gyeoldaero.toml`), which
+   PRD-001's config checks can't catch.
 6. `gyeoldaero build` prints `Built N pages in X ms → <out>` and exits 0; on errors in the
    notebook it still builds and prints diagnostics, exiting 1 only on hard errors.
+7. Before any page is rendered, the scanner's folder-swap race is closed (PRD-001 Notes →
+   *Must do before PRD-002 renders any page*): folders and files are opened relative to
+   their parent handle with `O_NOFOLLOW` through a safe crate, chosen in an ADR that weighs
+   `cap-std` against `rustix`. Otherwise a folder swapped for a symlink could leak files
+   from outside the notebook into served pages.
 
 ## Acceptance criteria
 
@@ -64,7 +74,11 @@ all without JavaScript.
       *(unit)*
 - [ ] AC4 — An asset with an allowed extension is copied; an `.svg` is not. *(integration)*
 - [ ] AC5 — Rebuilding after deleting a note removes its page; an output dir that
-      contains the notebook is refused. *(integration)*
+      contains the notebook is refused; a new output dir gets the marker file; a
+      non-empty output dir without the marker is refused and nothing in it is changed or
+      deleted. *(integration)*
+- [ ] AC9 — A folder swapped for a symlink between listing and reading is not followed
+      (handle-relative opening). *(unit)*
 - [ ] AC6 — Rendered pages make no external requests and contain no inline `<script>` or
       `style=` attributes. *(integration: scan output)*
 - [ ] AC7 — Without JS, in a real browser: `<details>` expand, `.enter` links and back
@@ -74,6 +88,11 @@ all without JavaScript.
       attached to the PR next to the mockup for comparison. *(by hand)*
 
 ## Open questions
+
+- Marker trust: a marker inside the notebook could be planted by a synced folder. PRD-001
+  already refuses a `build.out` inside the notebook that holds notes; should the marker
+  also carry a token recorded outside the notebook (e.g. under the cache dir)? (Security
+  review suggestion; default proposal: yes.)
 
 - Should the root heading show the notebook `name` from config or the root folder slug?
   (Default proposal: `name`.)

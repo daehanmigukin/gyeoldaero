@@ -7,5 +7,16 @@ license.workspace = true
 repository.workspace = true
 description.workspace = true
 
+[dependencies]
+comrak.workspace = true
+dirs.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true
