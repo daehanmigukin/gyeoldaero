@@ -1,7 +1,7 @@
 ---
 id: PRD-001
 title: Notebook model and `gyeoldaero check`
-status: Draft
+status: Accepted
 depends_on: [PRD-000]
 branch:
 ---
@@ -43,7 +43,7 @@ in a notebook in plain language, exiting non-zero on errors.
    - `Notebook::root() -> NoteId`, `get(NoteId) -> &Note`, `children(NoteId) -> &[NoteId]`
      (already ordered), `parent(NoteId) -> Option<NoteId>`, `by_path(&str) -> Option<NoteId>`.
    - `Note { slug, order: Option<u32>, dir_name, path: NotePath, title: Option<String>,
-     body: String, frontmatter: serde_yaml::Mapping (or equivalent), links: Vec<Link>,
+     body: String, frontmatter: serde_yaml_ng::Mapping, links: Vec<Link>,
      assets: Vec<PathBuf> }`
    - `Link { target: String, label: Option<String>, resolved: Option<NoteId> }`
    - `Diagnostic { level: Error|Warning, path, message }` with `Display`.
@@ -54,6 +54,12 @@ in a notebook in plain language, exiting non-zero on errors.
    or warnings only, 1 errors, 2 unusable root.
 5. Scanning a notebook of 5,000 notes completes in under 1 s on a laptop (release build).
    Add a benchmark-style ignored test or a `cargo bench` if cheap.
+6. Frontmatter is parsed with `serde_yaml_ng`.
+7. Non-ASCII slugs (e.g. Hangul folder names) are allowed and produce no diagnostic.
+8. Slugs and link targets are compared after Unicode NFC normalization: sibling duplicate
+   detection, `by_path` lookups and link resolution all normalize both sides to NFC first,
+   so a folder name stored in NFD (as macOS often writes it) matches a link typed in NFC.
+   The slug is still displayed as written.
 
 ## Acceptance criteria
 
@@ -74,10 +80,15 @@ in a notebook in plain language, exiting non-zero on errors.
 - [ ] AC9 — `gyeoldaero check` output and exit codes match Requirement 4 on a fixture with
       known problems (`tests/fixtures/broken/`). *(cli)*
 - [ ] AC10 — Performance target met. *(ignored test or bench, run in the PR description)*
+- [ ] AC11 — Unicode: a Hangul slug loads with no diagnostic; an NFD-named folder resolves
+      from an NFC link and an NFC `by_path` lookup; NFC and NFD spellings of the same slug
+      among siblings are reported as duplicates. *(unit)*
 
-## Open questions
+## Decisions
 
-- Frontmatter parser: `serde_yaml` is unmaintained; `serde_yaml_ng` or a TOML-frontmatter
-  alternative? (Default proposal: `serde_yaml_ng`.)
-- Should non-ASCII slugs (e.g. Hangul folder names) be allowed in v1, or warned about?
-  (Default proposal: allowed, percent-encoded in URLs, no warning.)
+Open questions answered by Ellie on 2026-10-23:
+
+- Frontmatter parser: **`serde_yaml_ng`**.
+- Non-ASCII slugs: **allowed, no warning** (percent-encoded in URLs, per
+  `architecture.md`). Added: slugs and link targets are compared after Unicode NFC
+  normalization (Requirement 8, AC11).
