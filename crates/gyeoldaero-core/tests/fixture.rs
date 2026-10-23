@@ -184,7 +184,7 @@ fn compare(nb: &Notebook, id: NoteId, mock: &MockNote, path: &str) {
     assert!(note.frontmatter.is_empty(), "{path}: frontmatter");
 
     let children = nb.children(id);
-    let mut got: Vec<&str> = children.iter().map(|c| nb.get(*c).slug.as_str()).collect();
+    let got: Vec<&str> = children.iter().map(|c| nb.get(*c).slug.as_str()).collect();
     let mut want: Vec<&str> = mock.children.iter().map(|c| c.slug.as_str()).collect();
     let all_prefixed = children.iter().all(|c| nb.get(*c).order.is_some());
     if !all_prefixed {

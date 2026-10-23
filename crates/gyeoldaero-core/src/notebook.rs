@@ -269,12 +269,12 @@ fn output_dirs(root: &Path, out: &Path) -> Vec<PathBuf> {
         ),
     ];
     for (root, out) in pairs {
-        if let (Some(root), Some(out)) = (root, out) {
-            if let Ok(rel) = out.strip_prefix(&root) {
-                if !rel.as_os_str().is_empty() && !found.iter().any(|f| f == rel) {
-                    found.push(rel.to_path_buf());
-                }
-            }
+        if let (Some(root), Some(out)) = (root, out)
+            && let Ok(rel) = out.strip_prefix(&root)
+            && !rel.as_os_str().is_empty()
+            && !found.iter().any(|f| f == rel)
+        {
+            found.push(rel.to_path_buf());
         }
     }
     found
@@ -363,7 +363,7 @@ impl Scanner {
             }
             if file_type.is_dir() {
                 let child_rel = rel.join(entry_name);
-                if !self.output_dirs.iter().any(|o| *o == child_rel) {
+                if !self.output_dirs.contains(&child_rel) {
                     subdirs.push((entry_name.to_owned(), path, child_rel));
                 }
                 continue;

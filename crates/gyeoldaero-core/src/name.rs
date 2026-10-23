@@ -10,15 +10,13 @@ use unicode_normalization::UnicodeNormalization;
 /// A name that is only a prefix (`010-`) has no prefix: the whole name is the slug.
 pub fn split_prefix(dir_name: &str) -> (Option<u32>, &str) {
     let digits = dir_name.bytes().take_while(u8::is_ascii_digit).count();
-    if (1..=4).contains(&digits) {
-        if let Some(slug) = dir_name[digits..].strip_prefix('-') {
-            if !slug.is_empty() {
-                // At most four ASCII digits always fit in a u32.
-                if let Ok(order) = dir_name[..digits].parse::<u32>() {
-                    return (Some(order), slug);
-                }
-            }
-        }
+    if (1..=4).contains(&digits)
+        && let Some(slug) = dir_name[digits..].strip_prefix('-')
+        && !slug.is_empty()
+        // At most four ASCII digits always fit in a u32.
+        && let Ok(order) = dir_name[..digits].parse::<u32>()
+    {
+        return (Some(order), slug);
     }
     (None, dir_name)
 }

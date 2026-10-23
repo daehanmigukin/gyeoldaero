@@ -1,5 +1,7 @@
 //! The `gyeoldaero` binary: argument parsing and subcommand wiring.
 
+mod check;
+
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -41,8 +43,13 @@ impl Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    eprintln!("not implemented yet ({})", cli.command.prd());
-    ExitCode::from(2)
+    match cli.command {
+        Command::Check { path } => check::run(path.as_deref()),
+        other => {
+            eprintln!("not implemented yet ({})", other.prd());
+            ExitCode::from(2)
+        }
+    }
 }
 
 #[cfg(test)]
