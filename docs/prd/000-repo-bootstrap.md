@@ -1,7 +1,7 @@
 ---
 id: PRD-000
 title: Repository bootstrap
-status: Accepted
+status: Shipped
 depends_on: []
 branch: main (bootstrap is the one exception to the no-commits-to-main rule)
 ---
@@ -88,15 +88,15 @@ and is ready for PRD-001 to start on a branch using the `prd-start` skill.
 
 ## Acceptance criteria
 
-- [ ] AC1 — `cargo fmt --check`, clippy with `-D warnings`, and `cargo test --workspace`
+- [x] AC1 — `cargo fmt --check`, clippy with `-D warnings`, and `cargo test --workspace`
       pass locally. *(cli)*
-- [ ] AC2 — `gyeoldaero --version` prints the version; each subcommand exits 2 with its
+- [x] AC2 — `gyeoldaero --version` prints the version; each subcommand exits 2 with its
       "not implemented" message. *(cli, by hand)*
-- [ ] AC3 — Each hook behaves as documented when fed a sample payload. *(by hand)*
-- [ ] AC4 — The fixture notebook mirrors the mockup tree: same notes, same bodies,
+- [x] AC3 — Each hook behaves as documented when fed a sample payload. *(by hand)*
+- [x] AC4 — The fixture notebook mirrors the mockup tree: same notes, same bodies,
       prefixes as specified. *(by hand; PRD-001 adds an automated test)*
-- [ ] AC5 — The repo exists on GitHub, CI is green on `main`. *(gh)*
-- [ ] AC6 — No placeholder strings (`<OWNER>`, `<COPYRIGHT HOLDER>`, `<YEAR>`) remain.
+- [x] AC5 — The repo exists on GitHub, CI is green on `main`. *(gh)*
+- [x] AC6 — No placeholder strings (`<OWNER>`, `<COPYRIGHT HOLDER>`, `<YEAR>`) remain.
       *(`grep -r`)*
 
 ## Plan
