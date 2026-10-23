@@ -175,8 +175,15 @@ name = "notebook"          # shown at the root of the path bar; default: folder 
 [serve]
 bind = "127.0.0.1:4321"
 [build]
-out = "~/.cache/gyeoldaero/<notebook-name>"   # default under XDG cache dir
+out = "~/.cache/gyeoldaero/notebook-1a2b3c4d"   # default, see below
 ```
+
+The default `out` is `<cache dir>/gyeoldaero/<folder-name>-<hash>`: the cache dir comes
+from `dirs::cache_dir()` (`$XDG_CACHE_HOME` or `~/.cache` on Linux, `~/Library/Caches` on
+macOS), `<folder-name>` is the notebook folder's name and `<hash>` is 8 hex characters of
+a 32-bit FNV-1a hash of the canonical absolute notebook path, so two notebooks with the
+same folder name don't share an output dir. `name` is display-only and never part of a
+path.
 
 CLI flags override config. Config is parsed by `gyeoldaero-core`. A relative `build.out`
 in `gyeoldaero.toml` resolves against the notebook root; a relative `--out` on the command

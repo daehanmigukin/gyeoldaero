@@ -125,10 +125,19 @@ Answered by Ellie on 2026-10-23, after the failing tests were written:
   where something could break silently later, and error only when a note can't be
   understood. Recorded in `architecture.md` → *Diagnostics*.
 
+Answered by Ellie on 2026-10-23, on choices raised during implementation:
+
+- **Default output dir**: `<platform cache dir>/gyeoldaero/<folder-name>-<8 hex chars of a
+  hash of the canonical absolute notebook path>`, using `dirs::cache_dir()`. The config
+  `name` is display-only. (Adds `dirs` to ADR 0002; the hash is 32-bit FNV-1a, written
+  inline, because `std`'s `DefaultHasher` isn't stable across Rust versions.)
+- **Files that aren't allowed assets** (`.svg`, `.html`, `.docx`, …): no diagnostic in
+  PRD-001. PRD-002 warns when a note's Markdown references a file that isn't an asset.
+
 ## Plan
 
 1. **Dependencies and ADR.** Add to `[workspace.dependencies]` and `gyeoldaero-core`:
-   `serde` (derive), `serde_yaml_ng` 0.10, `toml`, `thiserror`, `unicode-normalization`,
+   `serde` (derive), `serde_yaml_ng` 0.10, `toml`, `thiserror`, `unicode-normalization`, `dirs`,
    `comrak` (parsing only, for link extraction). Dev: `tempfile`; CLI gains `anyhow`
    and dev `assert_cmd`. `toml`, `serde`, `unicode-normalization` and `assert_cmd` aren't
    in the architecture table, so record them in `docs/adr/0002-notebook-model-deps.md`
@@ -152,7 +161,7 @@ Answered by Ellie on 2026-10-23, after the failing tests were written:
    - `error.rs`: `CoreError` (unreadable root, I/O, config parse).
    - `diagnostic.rs`: `Diagnostic`, `Level`, `Display`. *(AC3, AC6, AC7, AC8)*
    - `config.rs`: `Config::load`, defaults (`name` = folder name, bind `127.0.0.1:4321`,
-     `out` under `$XDG_CACHE_HOME` or `~/.cache`, `~` expanded). *(AC4: output dir ignore)*
+     `out` = `dirs::cache_dir()/gyeoldaero/<folder-name>-<hash>`, `~` expanded). *(AC4: output dir ignore)*
    - `name.rs`: prefix split, slug, comparison key (NFC + lowercase), natural-sort ordering. *(AC2, AC11)*
    - `ignore.rs`: hidden entries, `.git`, Syncthing and editor artifacts, output dir.
      *(AC4)*
@@ -174,3 +183,50 @@ Answered by Ellie on 2026-10-23, after the failing tests were written:
 ### For Ellie to look at
 
 - **New dependencies** in step 1 (ADR 0002).
+
+## Notes
+
+Choices made where the specs are silent, under the general rule (lenient input, warn
+where something could break silently, error only when a note can't be understood):
+
+- **Root note.** Its slug and path are empty; `dir_name` is the root folder's name. It
+  counts as a note in the `check` summary, and a missing root `index.md` warns like any
+  other folder. A root given as a symlink (e.g. `~/notes`) is used as given: the
+  no-symlink rule applies to what is found inside the notebook.
+- **Folder names.** `010-` alone (prefix with nothing after it) is not a prefix; the whole
+  name is the slug. Natural sort compares comparison keys (NFC + lowercase), so `Apple`
+  sorts with `apple`; the folder name on disk is the last tie-break, so order is
+  deterministic. A folder or file name that isn't valid UTF-8 can't be addressed by a link:
+  it is skipped with an error naming it.
+- **Duplicate slugs.** One error per clash naming every folder involved (three clashing
+  folders → one error). Every clashing note stays in the tree so nothing disappears;
+  `by_path` and links resolve to the first in sibling order. The error is attached to the
+  parent note.
+- **`index.md`.** Only the exact name `index.md` is the body. `Index.md`, `INDEX.MD`, etc.
+  get the stray-file warning with a hint to rename (it would work on macOS and silently
+  not on Linux). `.md` is matched case-insensitively for stray detection, and so are asset
+  extensions (`photo.PNG` is an asset).
+- **File contents.** A UTF-8 byte-order mark is dropped. An `index.md` that isn't valid
+  UTF-8 is decoded lossily with a warning. CRLF is normalized to LF when a note is read.
+- **Frontmatter.** An empty block (`---` / `---`) is an empty mapping, no diagnostic. A
+  block that is valid YAML but not a mapping (e.g. `---`, a line of text, `---`, which is
+  also a Markdown rule plus a setext heading) is treated like an unclosed block: warning,
+  whole file as body. A `title` that is empty or `null` means no title (the slug is shown),
+  no diagnostic. A list or map `title` is an error; the rest of the frontmatter still
+  applies.
+- **Symlinks.** One warning per symlink, on the note whose folder holds it. A symlinked
+  `index.md` gets only the symlink warning, not a second "missing index.md" one.
+- **Links.** comrak's wikilink extension does the extraction, so code, escaping and
+  trimming match what the renderer will parse (PRD-002 should reuse the same parse
+  options). `[[]]` is not a link. `[[a|]]` has no label. A trailing `/`, a leading `/`
+  and `.`/`..` segments in the middle of a path are accepted. `![[x]]` (embed syntax) is
+  treated as a link. `..` above the root is a broken link. A prefixed link segment is only
+  tried after no slug matches.
+- **Config.** `gyeoldaero.toml` that can't be parsed stops `check` with exit code 2 (the
+  notebook can't be read as configured). Unknown keys are warnings (a typo like `[biuld]`
+  would otherwise be silently ignored); they are carried in `Config::diagnostics`.
+  `name = ""` falls back to the folder name. `~` and `~/…` are expanded; `~user` is not.
+  `bind` stays a string until PRD-005 parses it. When `dirs::cache_dir()` finds no cache
+  dir (no `HOME`), the default output falls back to the system temp dir.
+- **`check` output.** Diagnostics go to stdout, grouped under the note path (`/` for the
+  root) in tree order; hard errors go to stderr.

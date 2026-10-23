@@ -19,6 +19,8 @@ rendering.
   an AST for wiki link extraction. Core still produces no HTML.
 - `assert_cmd` as a dev-dependency of `gyeoldaero-cli` for exit-code and output tests.
 - `serde_yaml_ng` 0.10 for frontmatter, as Ellie decided in PRD-001.
+- `dirs` for the platform cache dir (default `build.out`) and the home dir (`~`
+  expansion), as Ellie decided in PRD-001.
 
 ## Consequences
 
@@ -34,5 +36,7 @@ rendering.
 - Hand-written link scanner in core: would have to mirror CommonMark's code-span and
   fence rules and could disagree with the renderer.
 - `icu_normalizer` instead of `unicode-normalization`: larger, more than we need.
+- Reading `XDG_CACHE_HOME` / `HOME` by hand instead of `dirs`: wrong on macOS
+  (`~/Library/Caches`) and Windows.
 - `trycmd` / `snapbox` for CLI tests: more than we need for exit codes and a few lines of
   output.
