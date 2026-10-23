@@ -283,9 +283,20 @@ where something could break silently, error only when a note can't be understood
   (thin `openat` wrappers, more manual). The `O_NONBLOCK` part also fixes a FIFO swapped
   in for `index.md` blocking the read.
 - **Output dir writes.** Only write into, or clean, a directory that is empty or holds a
-  gyeoldaero marker file (security review).
+  gyeoldaero marker file (security review). The `build.out` check in `Config::load` is
+  only a backstop: a synced `gyeoldaero.toml` can still name `~/.ssh` or reach outside
+  through a symlink inside the notebook. Don't trust a marker found inside the notebook
+  (a synced folder can plant one): tie it to a random token recorded outside the
+  notebook, e.g. under the cache dir. Never clean an output dir that contains an
+  `index.md`. Resolve `out` with symlinks followed and report the resolved path when it
+  differs. `starts_with` compares case exactly, so on case-insensitive file systems a
+  differently cased spelling of home or the root isn't caught until the path exists;
+  the marker rule covers that too.
 
 ### For PRD-005
 
 - A non-loopback `serve.bind` that comes from `gyeoldaero.toml` (a synced, untrusted
   file) rather than the command line should warn loudly or require `--bind`.
+- Diagnostics in core are raw by design (`Display`, `location()`); only `check` escapes
+  them. When `serve` or the watcher logs diagnostics to a terminal, move `terminal_safe`
+  where both commands can use it and send all log output through it.
