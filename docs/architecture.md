@@ -49,7 +49,8 @@ Pinned choices; changing one needs an ADR.
 | CLI | `clap` (derive) | Standard. |
 | Markdown | `comrak` | GFM, built-in wikilink extension, raw HTML can be disabled. Also used by core for link extraction ([ADR 0002](adr/0002-notebook-model-deps.md)). |
 | Frontmatter | hand-split `---` + `serde_yaml_ng` | Small surface. Chosen in PRD-001. |
-| Config | `serde` + `toml` | `gyeoldaero.toml`. [ADR 0002](adr/0002-notebook-model-deps.md). |
+| Config | `toml` | `gyeoldaero.toml`, read as a table so unknown settings can be reported. [ADR 0002](adr/0002-notebook-model-deps.md). |
+| Platform dirs | `dirs` | Cache dir (default output) and `~`. [ADR 0002](adr/0002-notebook-model-deps.md). |
 | Unicode | `unicode-normalization` | NFC comparison keys. [ADR 0002](adr/0002-notebook-model-deps.md). |
 | Templates | `minijinja` | Runtime templates, so themes can override them later. Default templates embedded with `include_str!`. |
 | Watching | `notify` + `notify-debouncer-full` | Cross-platform, debounced events. |
@@ -80,6 +81,10 @@ Edition 2024. Toolchain: stable, pinned in `rust-toolchain.toml`.
   (`*.swp`, `*.swo`, `*~`, `4913`), and the output directory if it sits inside the
   notebook.
 - Symlinks are not followed. They are reported by `check`.
+- A folder whose slug would start with `.` (e.g. `001-..`, `002-.git`) is an error and is
+  skipped: such a slug would be hidden, or a path traversal once written as a URL path.
+- Limits: nesting deeper than 64 levels below the root is an error and the deeper folders
+  are skipped; an `index.md` over 8 MiB is an error and the note gets an empty body.
 
 ### Folder names, slugs, order
 
@@ -121,9 +126,13 @@ CRLF line endings are accepted everywhere (frontmatter, body, config).
 
 ### Diagnostics
 
-`gyeoldaero-core` returns diagnostics (level, path, message) instead of failing on content
-problems. Only unreadable notebook roots and I/O errors are hard errors. `gyeoldaero check`
-prints diagnostics and exits non-zero on any error-level diagnostic.
+`gyeoldaero-core` returns diagnostics (level, note path, folder on disk, message) instead of
+failing on content problems. Only an unusable notebook root or `gyeoldaero.toml` is a hard
+error. Below the root, an I/O error (unreadable folder or file) is an error diagnostic on
+its note and the scan continues; an `index.md` that disappears mid-scan counts as missing.
+`gyeoldaero check` prints diagnostics and exits non-zero on any error-level diagnostic. It
+escapes control and bidi characters in what it prints, since file names and link targets
+are untrusted.
 
 For cases the rules above don't cover: be lenient with what people type, warn where
 something could break silently later, and error only when a note can't be understood.
@@ -178,6 +187,10 @@ bind = "127.0.0.1:4321"
 out = "~/.cache/gyeoldaero/notebook-1a2b3c4d"   # default, see below
 ```
 
+A `build.out` that is the notebook root, an ancestor of it, the home directory or an
+ancestor of it is a config error: a synced notebook must not be able to point the build at
+the user's files. `gyeoldaero.toml` over 8 MiB is a config error.
+
 The default `out` is `<cache dir>/gyeoldaero/<folder-name>-<hash>`: the cache dir comes
 from `dirs::cache_dir()` (`$XDG_CACHE_HOME` or `~/.cache` on Linux, `~/Library/Caches` on
 macOS), `<folder-name>` is the notebook folder's name and `<hash>` is 8 hex characters of
@@ -199,7 +212,11 @@ user-written but may include pasted material. Treat it as untrusted input to the
 - Allowed asset extensions v1: `png jpg jpeg gif webp avif pdf txt`. **No SVG** in v1
   (it can carry scripts).
 - No symlink following during scan or copy; canonicalize and verify every output path is
-  inside the output root before writing.
+  inside the output root before writing. Files are opened and checked to be the same
+  regular file `lstat` saw. Folders are re-checked with `symlink_metadata` before
+  `read_dir`, which narrows but doesn't close the race of a folder being swapped for a
+  symlink; that must be closed (`openat` with `O_NOFOLLOW`) before PRD-002 renders any
+  page.
 - The server never serves anything outside the output directory and never serves the
   notebook directly.
 - No requests to third parties from rendered pages.

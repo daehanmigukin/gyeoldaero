@@ -13,7 +13,9 @@ rendering.
 
 ## Decision
 
-- `serde` (derive) and `toml` to parse `gyeoldaero.toml`.
+- `toml` to parse `gyeoldaero.toml`. It is read as a `toml::Table` rather than through
+  `serde` derive, so unknown settings can be reported as warnings; `serde` is not a direct
+  dependency.
 - `unicode-normalization` for NFC comparison keys.
 - `comrak` (default features off) in `gyeoldaero-core`, used only to parse Markdown into
   an AST for wiki link extraction. Core still produces no HTML.

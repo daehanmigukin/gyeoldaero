@@ -42,18 +42,24 @@ in a notebook in plain language, exiting non-zero on errors.
    - `Notebook::load(root: &Path, config: &Config) -> Result<(Notebook, Vec<Diagnostic>), CoreError>`
    - `Notebook::root() -> NoteId`, `get(NoteId) -> &Note`, `children(NoteId) -> &[NoteId]`
      (already ordered), `parent(NoteId) -> Option<NoteId>`, `by_path(&str) -> Option<NoteId>`.
-   - `Note { slug, order: Option<u32>, dir_name, path: NotePath, title: Option<String>,
-     body: String, frontmatter: serde_yaml_ng::Mapping, links: Vec<Link>,
-     assets: Vec<PathBuf> }`
+   - `Note { slug, order: Option<u32>, dir_name, dir: PathBuf, path: NotePath,
+     title: Option<String>, body: String, frontmatter: serde_yaml_ng::Mapping,
+     links: Vec<Link>, assets: Vec<PathBuf> }` (`dir`: the folder relative to the root,
+     as on disk).
    - `Link { target: String, label: Option<String>, resolved: Option<NoteId> }`
-   - `Diagnostic { level: Error|Warning, path, message }` with `Display`.
+   - `Diagnostic { level: Error|Warning, path, dir, message }` with `Display`; `dir` is the
+     note's folder relative to the root, as on disk, so notes whose slug paths clash can
+     be told apart.
    - `Config::load(root) -> Result<Config, CoreError>` with defaults when the file is absent.
      A relative `build.out` in `gyeoldaero.toml` resolves against the notebook root.
 3. Link extraction must ignore `[[…]]` inside inline code and fenced code blocks.
 4. `gyeoldaero check [PATH]` (default: current directory) prints diagnostics grouped by note
-   path, then a one-line summary (`3 errors, 1 warning in 21 notes`). Every count is plural
+   (headed by the note path, plus the folder on disk when it differs, e.g.
+   `cpu-architecture/caches  (010-cpu-architecture/010-caches)`), then a one-line summary (`3 errors, 1 warning in 21 notes`). Every count is plural
    except exactly 1 (`0 warnings`, `1 warning`, `2 errors`). Exit codes: 0 clean or
-   warnings only, 1 errors, 2 unusable root.
+   warnings only, 1 errors, 2 unusable root or unusable `gyeoldaero.toml`. Untrusted text
+   (file names, link targets) is printed with control and bidi characters escaped, so it
+   can't move the cursor, recolor or forge lines.
 5. Scanning a notebook of 5,000 notes completes in under 1 s on a laptop (release build).
    Add a benchmark-style ignored test or a `cargo bench` if cheap.
 6. Frontmatter is parsed with `serde_yaml_ng`.
@@ -92,7 +98,17 @@ in a notebook in plain language, exiting non-zero on errors.
       among siblings are reported as duplicates; so are `Caches` and `caches`; a link
       differing only in case resolves. *(unit)*
 - [ ] AC12 — Config: defaults when `gyeoldaero.toml` is absent; a relative `build.out`
-      resolves against the notebook root. *(unit)*
+      resolves against the notebook root; a `build.out` that is the notebook root, one of
+      its ancestors, or the home directory or one of its ancestors is an error. *(unit)*
+- [ ] AC13 — Robustness: below the root, an unreadable folder or file is an error
+      diagnostic and the scan continues; nesting deeper than 64 levels is an error and the
+      deeper folders are skipped (no stack overflow); an `index.md` over 8 MiB is an error
+      with an empty body; a folder whose slug would start with `.` (`001-..`, `002-.git`)
+      is an error and skipped; an `index.md` that is not a regular file when opened is not
+      read. *(unit)*
+- [ ] AC14 — Diagnostics carry the note's folder on disk; `check` output escapes control
+      and bidi characters, and a malformed `gyeoldaero.toml` exits 2 naming the file.
+      *(unit, cli)*
 
 ## Decisions
 
@@ -133,6 +149,19 @@ Answered by Ellie on 2026-10-23, on choices raised during implementation:
   inline, because `std`'s `DefaultHasher` isn't stable across Rust versions.)
 - **Files that aren't allowed assets** (`.svg`, `.html`, `.docx`, …): no diagnostic in
   PRD-001. PRD-002 warns when a note's Markdown references a file that isn't an asset.
+
+Answered by Ellie on 2026-10-23, on code- and security-review findings:
+
+- **I/O errors below the root** are error diagnostics on their note and the scan
+  continues; only an unusable root (or `gyeoldaero.toml`) is a hard error. An `index.md`
+  that disappears mid-scan counts as missing (AC13).
+- **Limits**: nesting depth 64 (deeper folders skipped with an error), `index.md` 8 MiB
+  (error, empty body), `gyeoldaero.toml` 8 MiB (hard config error) (AC13).
+- **Folder-swap race**: narrowed in PRD-001 (re-check `symlink_metadata` before
+  `read_dir`; files are opened and their inode compared with the `lstat` result). Closing
+  it fully needs `openat`/`O_NOFOLLOW` through a crate; see Notes.
+- **Diagnostics carry the folder on disk** (`Diagnostic::dir`, `Note::dir`) and `check`
+  shows it next to the note path when they differ (Requirement 2 and 4, AC14).
 
 ## Plan
 
@@ -230,3 +259,32 @@ where something could break silently, error only when a note can't be understood
   dir (no `HOME`), the default output falls back to the system temp dir.
 - **`check` output.** Diagnostics go to stdout, grouped under the note path (`/` for the
   root) in tree order; hard errors go to stderr.
+- **Public API beyond Requirement 2**, intended for PRD-002: `Notebook::len`, `is_empty`,
+  `iter` (depth first, sibling order), `Note::dir`, `notebook::ASSET_EXTENSIONS`,
+  `links::markdown_options()` (the comrak parse options, so the renderer parses links
+  exactly as core does) and `CONFIG_FILE`.
+- **Labels.** A label equal to the target (`[[a|a]]`) is stored as no label. Label text
+  includes inline code (`` [[a|use `x`]] `` → ``use x``).
+- **Error positions.** YAML errors report the line and column in `index.md`, not in the
+  frontmatter block.
+- **Default output name** is cut to 200 bytes (on a character boundary) before the hash,
+  to stay under file-name length limits.
+
+### Must do before PRD-002 renders any page
+
+- **Close the folder-swap race.** The scan checks a folder with `symlink_metadata` and
+  then calls `read_dir` by path. If a sync tool swaps the folder for a symlink in between,
+  the scan walks outside the notebook, and its `index.md` files and assets would end up
+  in served pages, leaking files from outside the notebook. Fix it with handle-relative
+  opening (`openat` with `O_DIRECTORY | O_NOFOLLOW`, files with `O_NOFOLLOW | O_NONBLOCK`)
+  through a safe crate, since `unsafe` is forbidden. Write an ADR that weighs `cap-std`
+  (capability-based `Dir`, which can't escape its root by construction) against `rustix`
+  (thin `openat` wrappers, more manual). The `O_NONBLOCK` part also fixes a FIFO swapped
+  in for `index.md` blocking the read.
+- **Output dir writes.** Only write into, or clean, a directory that is empty or holds a
+  gyeoldaero marker file (security review).
+
+### For PRD-005
+
+- A non-loopback `serve.bind` that comes from `gyeoldaero.toml` (a synced, untrusted
+  file) rather than the command line should warn loudly or require `--bind`.
