@@ -56,10 +56,11 @@ in a notebook in plain language, exiting non-zero on errors.
    Add a benchmark-style ignored test or a `cargo bench` if cheap.
 6. Frontmatter is parsed with `serde_yaml_ng`.
 7. Non-ASCII slugs (e.g. Hangul folder names) are allowed and produce no diagnostic.
-8. Slugs and link targets are compared after Unicode NFC normalization: sibling duplicate
-   detection, `by_path` lookups and link resolution all normalize both sides to NFC first,
-   so a folder name stored in NFD (as macOS often writes it) matches a link typed in NFC.
-   The slug is still displayed as written.
+8. Slugs and link targets are compared after Unicode NFC normalization and then
+   lowercasing (`str::to_lowercase`): sibling duplicate detection, `by_path` lookups and
+   link resolution all compare these keys, so a folder name stored in NFD (as macOS often
+   writes it) matches a link typed in NFC, and `Caches` / `caches` are the same slug
+   (they would collide in lowercased URLs). The slug is still displayed as written.
 
 ## Acceptance criteria
 
@@ -82,7 +83,8 @@ in a notebook in plain language, exiting non-zero on errors.
 - [ ] AC10 — Performance target met. *(ignored test or bench, run in the PR description)*
 - [ ] AC11 — Unicode: a Hangul slug loads with no diagnostic; an NFD-named folder resolves
       from an NFC link and an NFC `by_path` lookup; NFC and NFD spellings of the same slug
-      among siblings are reported as duplicates. *(unit)*
+      among siblings are reported as duplicates; so are `Caches` and `caches`; a link
+      differing only in case resolves. *(unit)*
 
 ## Decisions
 
@@ -92,6 +94,8 @@ Open questions answered by Ellie on 2026-10-23:
 - Non-ASCII slugs: **allowed, no warning** (percent-encoded in URLs, per
   `architecture.md`). Added: slugs and link targets are compared after Unicode NFC
   normalization (Requirement 8, AC11).
+- Slug case (raised during planning): comparison is **case-insensitive** after NFC, to
+  match the lowercased URL form (Requirement 8, AC11).
 
 ## Plan
 
@@ -102,7 +106,7 @@ Open questions answered by Ellie on 2026-10-23:
    in the architecture table, so record them in `docs/adr/0002-notebook-model-deps.md`
    (`adr` skill, status Proposed) and link it from `architecture.md`. *(all ACs)*
 2. **Spec sync.** `architecture.md` → *Folder names, slugs, order* and *Links*: add the
-   NFC comparison rule (Req. 8). *(AC11)*
+   NFC + case-insensitive comparison rule (Req. 8). *(AC11)*
 3. **Tests first** with the `test-author` agent, committed failing:
    - AC1: `crates/gyeoldaero-core/tests/fixture.rs` loads `tests/fixtures/notebook` and
      compares it with the mockup's `TREE`, extracted at test time from
@@ -121,14 +125,14 @@ Open questions answered by Ellie on 2026-10-23:
    - `diagnostic.rs`: `Diagnostic`, `Level`, `Display`. *(AC3, AC6, AC7, AC8)*
    - `config.rs`: `Config::load`, defaults (`name` = folder name, bind `127.0.0.1:4321`,
      `out` under `$XDG_CACHE_HOME` or `~/.cache`, `~` expanded). *(AC4: output dir ignore)*
-   - `name.rs`: prefix split, slug, NFC comparison key, natural-sort ordering. *(AC2, AC11)*
+   - `name.rs`: prefix split, slug, comparison key (NFC + lowercase), natural-sort ordering. *(AC2, AC11)*
    - `ignore.rs`: hidden entries, `.git`, Syncthing and editor artifacts, output dir.
      *(AC4)*
    - `frontmatter.rs`: split `---` block, `title`, preserved `Mapping`, malformed → error
      diagnostic and whole file as body. *(AC7)*
    - `links.rs`: extract `[[path]]` / `[[path|label]]` from the comrak AST (so code spans
      and fenced blocks are skipped exactly as the renderer will see them), resolve
-     absolute, `./`, `../` via NFC keys. *(AC8, AC11)*
+     absolute, `./`, `../` via comparison keys. *(AC8, AC11)*
    - `notebook.rs`: scan (no symlink following), build the model, the API from Req. 2,
      sibling duplicate detection, missing `index.md` / stray `.md` warnings. *(AC1–AC7)*
 5. **`gyeoldaero check [PATH]`** in `gyeoldaero-cli`: load config and notebook, print
@@ -141,9 +145,4 @@ Open questions answered by Ellie on 2026-10-23:
 
 ### For Ellie to look at
 
-- **Case of slugs.** `architecture.md` says slugs are lowercased for URLs, so sibling
-  folders `Caches` and `caches` would collide in the output. Proposed: compare slugs by
-  NFC **and** lowercase (so those two are a duplicate-slug error, and `[[CPU-Architecture]]`
-  resolves to `cpu-architecture`). Alternative: NFC only, case-sensitive. Not started
-  on this rule until answered.
 - **New dependencies** in step 1 (ADR 0002).
