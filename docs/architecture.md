@@ -101,16 +101,20 @@ Optional YAML block at the top of `index.md`, delimited by `---` lines. v1 field
 
 | Field | Type | Effect |
 |---|---|---|
-| `title` | string | Shown instead of the slug in headings and rows. |
+| `title` | string | Shown instead of the slug in headings and rows. A number or boolean is converted to a string; a list or map is a `check` error. |
 
 Unknown fields are preserved in the model and ignored by the renderer, so later features
 can use them. Malformed frontmatter is a `check` error; the note renders with the whole
-file as body.
+file as body. An opening `---` with no closing `---` is not frontmatter (a leading `---`
+can be a Markdown horizontal rule): the whole file is the body and `check` warns.
+CRLF line endings are accepted everywhere (frontmatter, body, config).
 
 ### Links
 
 - Syntax: `[[path]]` or `[[path|label]]`. Path is from the notebook root, using slugs
   (prefixes not needed). `[[./child]]` and `[[../sibling]]` are relative to the current note.
+- A link written with order prefixes (`[[010-caches]]`) still resolves, but `check` warns
+  and asks for the slug: prefixed links break when notes are renumbered.
 - A link that doesn't resolve renders as a visibly broken link (no `href`) and is an error
   in `check`.
 - The model keeps outgoing links per note so backlinks can be added without rescanning.
@@ -120,6 +124,9 @@ file as body.
 `gyeoldaero-core` returns diagnostics (level, path, message) instead of failing on content
 problems. Only unreadable notebook roots and I/O errors are hard errors. `gyeoldaero check`
 prints diagnostics and exits non-zero on any error-level diagnostic.
+
+For cases the rules above don't cover: be lenient with what people type, warn where
+something could break silently later, and error only when a note can't be understood.
 
 ---
 
@@ -171,7 +178,9 @@ bind = "127.0.0.1:4321"
 out = "~/.cache/gyeoldaero/<notebook-name>"   # default under XDG cache dir
 ```
 
-CLI flags override config. Config is parsed by `gyeoldaero-core`.
+CLI flags override config. Config is parsed by `gyeoldaero-core`. A relative `build.out`
+in `gyeoldaero.toml` resolves against the notebook root; a relative `--out` on the command
+line resolves against the current directory.
 
 ## Security notes
 

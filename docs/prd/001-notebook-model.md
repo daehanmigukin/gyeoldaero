@@ -48,10 +48,12 @@ in a notebook in plain language, exiting non-zero on errors.
    - `Link { target: String, label: Option<String>, resolved: Option<NoteId> }`
    - `Diagnostic { level: Error|Warning, path, message }` with `Display`.
    - `Config::load(root) -> Result<Config, CoreError>` with defaults when the file is absent.
+     A relative `build.out` in `gyeoldaero.toml` resolves against the notebook root.
 3. Link extraction must ignore `[[…]]` inside inline code and fenced code blocks.
 4. `gyeoldaero check [PATH]` (default: current directory) prints diagnostics grouped by note
-   path, then a one-line summary (`3 errors, 1 warning in 21 notes`). Exit codes: 0 clean
-   or warnings only, 1 errors, 2 unusable root.
+   path, then a one-line summary (`3 errors, 1 warning in 21 notes`). Every count is plural
+   except exactly 1 (`0 warnings`, `1 warning`, `2 errors`). Exit codes: 0 clean or
+   warnings only, 1 errors, 2 unusable root.
 5. Scanning a notebook of 5,000 notes completes in under 1 s on a laptop (release build).
    Add a benchmark-style ignored test or a `cargo bench` if cheap.
 6. Frontmatter is parsed with `serde_yaml_ng`.
@@ -64,8 +66,9 @@ in a notebook in plain language, exiting non-zero on errors.
 
 ## Acceptance criteria
 
-- [ ] AC1 — The fixture notebook loads with zero diagnostics, and the loaded tree (slugs,
-      order, bodies) equals the mockup's `TREE`. *(unit, against `tests/fixtures/notebook`)*
+- [ ] AC1 — With zero diagnostics, the fixture loads with the same notes, nesting and
+      bodies as the mockup's `TREE`; sibling order follows AC2.
+      *(unit, against `tests/fixtures/notebook`)*
 - [ ] AC2 — Ordering: prefixed by number, then unprefixed by natural sort, ties by slug.
       *(unit, table-driven)*
 - [ ] AC3 — Duplicate slugs among siblings produce an error diagnostic naming both folders. *(unit)*
@@ -75,9 +78,12 @@ in a notebook in plain language, exiting non-zero on errors.
 - [ ] AC6 — Directory without `index.md` → note with empty body + warning; stray `.md`
       files → warning. *(unit)*
 - [ ] AC7 — Frontmatter: `title` used; unknown fields preserved; malformed YAML → error
-      and the whole file becomes the body. *(unit)*
+      and the whole file becomes the body; an opening `---` with no closing `---` → warning
+      and the whole file is the body; CRLF line endings are accepted; a numeric or boolean
+      `title` becomes a string, a list or map `title` is an error. *(unit)*
 - [ ] AC8 — Links: absolute, `./`, `../`, with labels; broken link → error; links in code
-      are ignored. *(unit)*
+      are ignored; a link written with order prefixes (`[[010-b]]`) resolves and gives a
+      warning telling the user to link by slug. *(unit)*
 - [ ] AC9 — `gyeoldaero check` output and exit codes match Requirement 4 on a fixture with
       known problems (`tests/fixtures/broken/`). *(cli)*
 - [ ] AC10 — Performance target met. *(ignored test or bench, run in the PR description)*
@@ -85,6 +91,8 @@ in a notebook in plain language, exiting non-zero on errors.
       from an NFC link and an NFC `by_path` lookup; NFC and NFD spellings of the same slug
       among siblings are reported as duplicates; so are `Caches` and `caches`; a link
       differing only in case resolves. *(unit)*
+- [ ] AC12 — Config: defaults when `gyeoldaero.toml` is absent; a relative `build.out`
+      resolves against the notebook root. *(unit)*
 
 ## Decisions
 
@@ -96,6 +104,26 @@ Open questions answered by Ellie on 2026-10-23:
   normalization (Requirement 8, AC11).
 - Slug case (raised during planning): comparison is **case-insensitive** after NFC, to
   match the lowercased URL form (Requirement 8, AC11).
+
+Answered by Ellie on 2026-10-23, after the failing tests were written:
+
+- **AC1** no longer requires the mockup's hand-picked sibling order; order follows AC2.
+- **Fixture**: the top-level notes get order prefixes (`010-cpu-architecture`,
+  `020-korean-infosec-law`, `030-homelab`, `040-inbox`) so the root order matches the
+  mockup. Deeper levels stay as they are, so unprefixed sorting stays covered.
+- **Prefixed links** (`[[010-b]]`) resolve, with a warning to link by slug: prefixed links
+  break when notes are renumbered (AC8).
+- **Output path**: a relative `build.out` in `gyeoldaero.toml` resolves against the
+  notebook root; a relative `--out` on the command line resolves against the current
+  directory (the flag arrives with PRD-002) (AC12).
+- **Frontmatter**: an opening `---` with no closing `---` is a warning and the whole file
+  is the body (a leading `---` can be a Markdown horizontal rule); CRLF line endings are
+  accepted everywhere; a numeric or boolean `title` becomes a string, a list or map is an
+  error (AC7).
+- **Summary line**: plural for every count except exactly 1 (Requirement 4).
+- **General rule** for cases the specs don't cover: be lenient with what people type, warn
+  where something could break silently later, and error only when a note can't be
+  understood. Recorded in `architecture.md` → *Diagnostics*.
 
 ## Plan
 
