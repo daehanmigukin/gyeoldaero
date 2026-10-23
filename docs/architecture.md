@@ -47,8 +47,10 @@ Pinned choices; changing one needs an ADR.
 | Need | Crate | Why |
 |---|---|---|
 | CLI | `clap` (derive) | Standard. |
-| Markdown | `comrak` | GFM, built-in wikilink extension, raw HTML can be disabled. |
-| Frontmatter | `serde_yaml_ng` or hand-split `---` + `serde_yaml_ng` | Small surface. Re-evaluate maintenance status at PRD-001. |
+| Markdown | `comrak` | GFM, built-in wikilink extension, raw HTML can be disabled. Also used by core for link extraction ([ADR 0002](adr/0002-notebook-model-deps.md)). |
+| Frontmatter | hand-split `---` + `serde_yaml_ng` | Small surface. Chosen in PRD-001. |
+| Config | `serde` + `toml` | `gyeoldaero.toml`. [ADR 0002](adr/0002-notebook-model-deps.md). |
+| Unicode | `unicode-normalization` | NFC comparison keys. [ADR 0002](adr/0002-notebook-model-deps.md). |
 | Templates | `minijinja` | Runtime templates, so themes can override them later. Default templates embedded with `include_str!`. |
 | Watching | `notify` + `notify-debouncer-full` | Cross-platform, debounced events. |
 | HTTP | `axum` + `tower-http` (`ServeDir`, headers) | Small, well-maintained. |
@@ -57,6 +59,7 @@ Pinned choices; changing one needs an ADR.
 | Logging | `tracing` + `tracing-subscriber` | Structured, leveled. |
 | Snapshot tests | `insta` | Golden tests for rendered HTML. |
 | Temp dirs in tests | `tempfile` | |
+| CLI tests | `assert_cmd` | [ADR 0002](adr/0002-notebook-model-deps.md). |
 
 Edition 2024. Toolchain: stable, pinned in `rust-toolchain.toml`.
 
@@ -85,6 +88,9 @@ Edition 2024. Toolchain: stable, pinned in `rust-toolchain.toml`.
 - Slugs must match `^[a-z0-9][a-z0-9-]*$` after lowercasing for URLs. Other characters
   (including Hangul) are allowed in folder names; their URL form is percent-encoded and
   `check` does not complain. Display always uses the slug as written.
+- Slugs are compared by a key: Unicode NFC normalization, then lowercasing. So an NFD
+  folder name matches an NFC link, and `Caches` and `caches` are the same slug.
+  Duplicate detection, path lookups and link resolution all use this key (PRD-001).
 - Two siblings with the same slug (e.g. `010-x` and `x`) are an error.
 - Sibling order: prefixed notes first, by number, then unprefixed notes by natural sort
   (so `note-2` < `note-10`). Ties on number break by slug.
