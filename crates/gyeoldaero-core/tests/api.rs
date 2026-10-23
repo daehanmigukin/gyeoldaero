@@ -166,6 +166,35 @@ fn build_out_pointing_at_the_notebook_or_home_is_an_error() {
 
 // PRD-001 AC12
 #[test]
+fn build_out_on_a_folder_holding_notes_is_an_error() {
+    // (case, `out` as written)
+    let cases: &[(&str, &str)] = &[
+        ("a note folder", "010-topic"),
+        ("a folder with notes below it", "holder"),
+    ];
+    for (case, out) in cases {
+        let nb = TempNotebook::new();
+        nb.note("010-topic", "Topic.\n");
+        nb.note("holder/inner", "Inner.\n");
+        nb.file("gyeoldaero.toml", &format!("[build]\nout = \"{out}\"\n"));
+        let err = Config::load(nb.root()).expect_err(case);
+        assert!(
+            matches!(err, gyeoldaero_core::CoreError::Config { .. }),
+            "{case}: {err:?}"
+        );
+        assert!(err.to_string().contains("build.out"), "{case}: {err}");
+    }
+
+    // A previous build's output (pages, no notes) is fine.
+    let nb = TempNotebook::new();
+    nb.file("_site/index.html", "<html>\n");
+    nb.file("_site/page/index.html", "<html>\n");
+    nb.file("gyeoldaero.toml", "[build]\nout = \"_site\"\n");
+    assert!(Config::load(nb.root()).is_ok());
+}
+
+// PRD-001 AC12
+#[test]
 fn build_out_dot_dot_segments_resolve_lexically() {
     let nb = TempNotebook::new();
     nb.file("gyeoldaero.toml", "[build]\nout = \"sub/../site\"\n");
