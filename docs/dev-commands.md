@@ -14,8 +14,9 @@ cargo test --workspace
 ## Running against the fixture notebook
 
 ```sh
-# once PRD-001 ships
-cargo run -p gyeoldaero-cli -- check tests/fixtures/notebook
+# report problems: exit 0 clean or warnings only, 1 errors, 2 unusable root or config
+cargo run -p gyeoldaero-cli -- check tests/fixtures/notebook   # clean: 0 errors, 0 warnings in 23 notes
+cargo run -p gyeoldaero-cli -- check tests/fixtures/broken     # known problems, exits 1
 
 # once PRD-002 ships
 cargo run -p gyeoldaero-cli -- build tests/fixtures/notebook --out target/site
@@ -26,6 +27,13 @@ cargo run -p gyeoldaero-cli -- serve tests/fixtures/notebook --bind 127.0.0.1:43
 
 To try it on a phone over the tailnet, bind to the machine's Tailscale address or use
 `tailscale serve 4321`.
+
+## Performance check (PRD-001 AC10)
+
+```sh
+# loads 5,000 generated notes; must take under 1 s
+cargo test --release -p gyeoldaero-core --test perf -- --ignored --nocapture
+```
 
 ## Snapshot tests
 
