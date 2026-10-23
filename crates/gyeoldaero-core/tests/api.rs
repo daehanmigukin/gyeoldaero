@@ -19,13 +19,52 @@ fn config_defaults_when_file_is_absent() {
         .into_owned();
     assert_eq!(config.name, folder);
     assert_eq!(config.serve.bind.to_string(), "127.0.0.1:4321");
-    assert!(config.build.out.is_absolute(), "{:?}", config.build.out);
+    let out = &config.build.out;
+    assert!(out.is_absolute(), "{out:?}");
+    // <cache dir>/gyeoldaero/<folder-name>-<8 hex chars>
+    let leaf = out
+        .file_name()
+        .expect("out has a name")
+        .to_string_lossy()
+        .into_owned();
+    let hash = leaf
+        .strip_prefix(&format!("{folder}-"))
+        .unwrap_or_else(|| panic!("{leaf:?} starts with the folder name"));
+    assert_eq!(hash.len(), 8, "{leaf:?}");
     assert!(
-        config.build.out.ends_with(format!("gyeoldaero/{folder}")),
-        "{:?}",
-        config.build.out
+        hash.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "{leaf:?}"
     );
-    assert!(!config.build.out.starts_with(nb.root()));
+    assert!(
+        out.parent().is_some_and(|p| p.ends_with("gyeoldaero")),
+        "{out:?}"
+    );
+    if let Some(cache) = dirs::cache_dir() {
+        assert!(out.starts_with(cache), "{out:?}");
+    }
+    assert!(!out.starts_with(nb.root()));
+}
+
+// PRD-001 Req2
+#[test]
+fn default_out_is_stable_and_differs_between_same_named_notebooks() {
+    let a = tempfile::tempdir().expect("temp dir");
+    let b = tempfile::tempdir().expect("temp dir");
+    let (na, nb) = (a.path().join("notes"), b.path().join("notes"));
+    std::fs::create_dir(&na).expect("mkdir");
+    std::fs::create_dir(&nb).expect("mkdir");
+    let out_a = Config::load(&na).expect("config").build.out;
+    assert_eq!(
+        Config::load(&na).expect("config").build.out,
+        out_a,
+        "stable"
+    );
+    let out_b = Config::load(&nb).expect("config").build.out;
+    assert_ne!(out_a, out_b, "same folder name, different notebooks");
+    // The display name never enters the path.
+    std::fs::write(na.join("gyeoldaero.toml"), "name = \"../../escape\"\n").expect("write");
+    assert_eq!(Config::load(&na).expect("config").build.out, out_a);
 }
 
 // PRD-001 Req2

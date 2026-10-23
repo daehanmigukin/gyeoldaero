@@ -9,6 +9,7 @@ description.workspace = true
 
 [dependencies]
 comrak.workspace = true
+dirs.workspace = true
 serde.workspace = true
 serde_yaml_ng.workspace = true
 thiserror.workspace = true
