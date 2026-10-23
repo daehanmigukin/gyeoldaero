@@ -180,7 +180,7 @@ fn output_dir_inside_notebook_is_ignored() {
 fn output_dir_from_gyeoldaero_toml_is_ignored() {
     let nb = TempNotebook::new();
     nb.note("note", "Note.\n");
-    nb.note("_site", "<html>\n");
+    nb.file("_site/index.html", "<html>\n");
     let out = nb.path("_site");
     let out_str = out.to_str().expect("temp path is UTF-8");
     nb.file(

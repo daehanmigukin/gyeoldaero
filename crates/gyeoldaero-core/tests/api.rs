@@ -133,7 +133,7 @@ fn relative_build_out_resolves_against_the_notebook_root() {
 fn relative_build_out_inside_the_notebook_is_ignored_when_scanning() {
     let nb = TempNotebook::new();
     nb.note("note", "Note.\n");
-    nb.note("_site", "<html>\n");
+    nb.file("_site/index.html", "<html>\n");
     nb.file("gyeoldaero.toml", "[build]\nout = \"_site\"\n");
     let config = Config::load(nb.root()).expect("config");
     let (notebook, diags) = nb.load_with(&config);
