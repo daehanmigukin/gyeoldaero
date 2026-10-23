@@ -4,9 +4,12 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
+use crate::NOTE_FILE;
 use crate::diagnostic::{Diagnostic, Level};
 use crate::error::CoreError;
 use crate::fsread::{self, Contents, MAX_FILE_BYTES};
+use crate::ignore::is_ignored;
+use crate::notebook::MAX_DEPTH;
 use crate::notebook::NotePath;
 
 /// Name of the configuration file in the notebook root.
@@ -195,7 +198,8 @@ fn default_out(folder: &str, canonical_root: &Path) -> PathBuf {
 }
 
 /// Refuses a configured `build.out` that would point the build at the notebook or the
-/// user's files: the root, an ancestor of it, the home folder or an ancestor of it.
+/// user's files: the root, an ancestor of it, the home folder or an ancestor of it, or a
+/// folder inside the notebook that holds notes (the scan would skip them as output).
 /// `gyeoldaero.toml` comes from a synced, untrusted notebook.
 fn check_out(out: &Path, abs_root: &Path, canonical_root: &Path) -> Result<(), String> {
     let mut outs = vec![out.to_path_buf()];
@@ -226,7 +230,38 @@ fn check_out(out: &Path, abs_root: &Path, canonical_root: &Path) -> Result<(), S
             ));
         }
     }
+    let inside = outs.iter().any(|o| roots.iter().any(|r| o.starts_with(r)));
+    if inside && holds_notes(out, 0) {
+        return Err(format!(
+            "`build.out` ({}) is a folder inside the notebook that holds notes (an {NOTE_FILE} \
+             in it or below it); those notes would be hidden from the scan and built over. \
+             Choose a separate folder, or remove the setting to use the default.",
+            out.display()
+        ));
+    }
     Ok(())
+}
+
+/// True if `dir` or a folder below it holds a regular `index.md` that the scanner would
+/// read. Symlinks are not followed; ignored entries and depth follow the scanner's rules.
+fn holds_notes(dir: &Path, depth: usize) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let name = entry.file_name();
+        if is_ignored(&name.to_string_lossy()) {
+            return false;
+        }
+        match entry.file_type() {
+            Ok(t) if t.is_file() => name == NOTE_FILE,
+            Ok(t) if t.is_dir() => holds_notes(&entry.path(), depth + 1),
+            _ => false,
+        }
+    })
 }
 
 /// Removes `.` and resolves `..` lexically (without touching the file system).
