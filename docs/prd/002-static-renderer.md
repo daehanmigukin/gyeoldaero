@@ -56,13 +56,13 @@ all without JavaScript.
    from, a non-empty directory without that marker. This covers a `build.out` pointing
    outside the notebook (e.g. `~/Documents` from a synced `gyeoldaero.toml`), which
    PRD-001's config checks can't catch.
+6. `gyeoldaero build` prints `Built N pages in X ms → <out>` and exits 0; on errors in the
+   notebook it still builds and prints diagnostics, exiting 1 only on hard errors.
 7. Before any page is rendered, the scanner's folder-swap race is closed (PRD-001 Notes →
    *Must do before PRD-002 renders any page*): folders and files are opened relative to
    their parent handle with `O_NOFOLLOW` through a safe crate, chosen in an ADR that weighs
    `cap-std` against `rustix`. Otherwise a folder swapped for a symlink could leak files
    from outside the notebook into served pages.
-6. `gyeoldaero build` prints `Built N pages in X ms → <out>` and exits 0; on errors in the
-   notebook it still builds and prints diagnostics, exiting 1 only on hard errors.
 
 ## Acceptance criteria
 
