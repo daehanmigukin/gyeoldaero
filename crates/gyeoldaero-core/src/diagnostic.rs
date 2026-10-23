@@ -43,7 +43,13 @@ impl Diagnostic {
     /// `cpu-architecture/caches  (010-cpu-architecture/010-caches)`.
     pub fn location(&self) -> String {
         let path = self.path.display_name();
-        let dir = self.dir.to_string_lossy();
+        // Join with `/` on every platform, so a matching folder isn't repeated on Windows.
+        let dir = self
+            .dir
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
         if dir.is_empty() || dir == path {
             path.to_owned()
         } else {

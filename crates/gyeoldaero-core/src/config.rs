@@ -89,7 +89,10 @@ impl Config {
             Ok(Contents::TooLarge) => {
                 return Err(CoreError::Config {
                     path: file,
-                    message: "the file is larger than 8 MiB; is it really the config?".to_owned(),
+                    message: "the file is larger than 8 MiB, but a config file is a few lines. \
+                              Check that this is the right file, or remove it to use the \
+                              defaults."
+                        .to_owned(),
                 });
             }
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(config),

@@ -21,9 +21,12 @@ pub enum Contents {
 
 /// Reads `path` only if it is a regular file of at most `max` bytes.
 ///
-/// `lstat` first, so a symlink or FIFO is never opened (opening a FIFO would block).
-/// After opening, the handle's metadata must describe the same regular file `lstat` saw
-/// (same device and inode on Unix), so a swap for a symlink in between is caught.
+/// `lstat` first, so a symlink or FIFO found there is not opened (opening a FIFO would
+/// block). After opening, the handle's metadata must describe the same regular file
+/// `lstat` saw (same device and inode on Unix), so a swap for a symlink in between is
+/// caught before anything is read. The swap itself still makes `open` follow the link,
+/// or block on a FIFO; closing that needs `O_NOFOLLOW | O_NONBLOCK` (see PRD-001 Notes,
+/// "Must do before PRD-002 renders any page").
 pub fn read_regular(path: &Path, max: u64) -> io::Result<Contents> {
     let before = fs::symlink_metadata(path)?;
     if !before.is_file() {
