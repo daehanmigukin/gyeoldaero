@@ -1,0 +1,1 @@
+Speculation leaves traces in the cache even after the results are squashed. Variant 1 trains the predictor to run a bounds-checked load out of bounds, then reads the secret back through a timing side channel in [[cpu-architecture/caches]].

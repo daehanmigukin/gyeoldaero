@@ -1,0 +1,1 @@
+개인정보 보호법, the Personal Information Protection Act. The general privacy statute, enforced by the PIPC (개인정보보호위원회). The 2020 and 2023 amendments moved a lot of what used to live in the Network Act into it.

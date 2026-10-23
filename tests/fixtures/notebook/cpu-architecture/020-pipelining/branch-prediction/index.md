@@ -1,0 +1,1 @@
+Guess the branch, keep fetching, throw the work away if wrong. Modern predictors are right the vast majority of the time on typical code, which is why the misses on a hot loop still show up in profiles.

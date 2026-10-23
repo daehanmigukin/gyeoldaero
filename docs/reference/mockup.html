@@ -1,0 +1,407 @@
+<title>Note Tree Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-screen app. Path bar on top, a stage of stacked "folder" views that slide like yazi columns, a hint bar at the bottom. */
+:root{
+  --bg:#EEF1EF; --surface:#F8FAF9; --fg:#1A201F; --muted:#5A6764; --line:#D1D9D6;
+  --accent:#2350B8; --accent-soft:#DCE4F6; --shadow:rgba(20,30,28,.12);
+  --ui:"Atkinson Hyperlegible Next","Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121615; --surface:#1A201E; --fg:#E2E8E6; --muted:#8D9A96; --line:#29312F;
+  --accent:#8FAEF6; --accent-soft:#1E2944; --shadow:rgba(0,0,0,.45); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121615; --surface:#1A201E; --fg:#E2E8E6; --muted:#8D9A96; --line:#29312F;
+  --accent:#8FAEF6; --accent-soft:#1E2944; --shadow:rgba(0,0,0,.45); color-scheme:dark}
+
+html{box-sizing:border-box;height:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:16px;line-height:1.55;overflow:hidden}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:flex;flex-direction:column}
+
+.top{display:flex;align-items:center;gap:4px;padding-block:6px;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  border-bottom:1px solid var(--line);background:var(--bg)}
+#back{width:40px;height:40px;flex:none;margin-left:-10px;border:0;background:none;border-radius:8px;cursor:pointer;
+  font:500 26px/1 var(--mono);color:var(--fg)}
+#back:disabled{opacity:.25;cursor:default}
+.crumbs{flex:1;min-width:0;display:flex;align-items:center;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
+  font:500 14px/1 var(--mono)}
+.crumbs::-webkit-scrollbar{display:none}
+.crumb{border:0;background:none;padding:12px 3px;border-radius:6px;cursor:pointer;color:var(--muted);font:inherit}
+.crumb:hover{color:var(--accent)}
+.crumb.cur{color:var(--fg);font-weight:600;cursor:default}
+.sep{color:var(--muted);opacity:.5;padding:0 1px}
+
+.stage{position:relative;flex:1;min-height:0;overflow:hidden}
+.view{position:absolute;inset:0;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);touch-action:pan-y}
+.view + .view{box-shadow:0 0 28px var(--shadow)}
+.inner{max-width:680px;margin:0 auto;padding-block:20px 56px;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px))}
+
+.eyebrow{margin:0;font:500 12px/1.4 var(--mono);color:var(--muted);letter-spacing:.02em}
+h1{margin:6px 0 10px;font:600 clamp(22px,6vw,28px)/1.2 var(--mono);letter-spacing:-.01em;text-wrap:balance;overflow-wrap:anywhere}
+.prose{max-width:62ch}
+.prose p,.prose ul{margin:0 0 .7em}
+.prose ul{padding-left:1.15em}
+.prose li{margin-bottom:.2em}
+.prose code{font:13.5px var(--mono);background:var(--surface);border:1px solid var(--line);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+.wl{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;font-family:var(--mono);font-size:.92em}
+
+.list-head{margin:28px 0 6px}
+.rows{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.row{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+.reveal{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;padding:0 20px;
+  background:var(--accent-soft);color:var(--accent);font:600 14px var(--mono);opacity:0}
+[data-flip] .reveal{justify-content:flex-start}
+.track{position:relative;background:var(--bg)}
+.row.kfocus .track{background:var(--surface)}
+.row-head{display:flex;align-items:stretch}
+.toggle{flex:1;min-width:0;display:flex;align-items:center;gap:12px;border:0;background:none;text-align:left;
+  padding:15px 0;cursor:pointer;font:600 16px/1.3 var(--mono);color:var(--fg)}
+.toggle:hover .t{color:var(--accent)}
+.row button:focus-visible{outline-offset:-2px}
+.t{overflow-wrap:anywhere}
+.caret{flex:none;width:8px;height:8px;margin-left:2px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:rotate(-45deg);transition:transform .2s ease}
+.is-open .caret{transform:rotate(45deg)}
+.enter{flex:none;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:64px;padding:0 0 0 12px;
+  border:0;background:none;cursor:pointer;color:var(--accent);font:600 13px var(--mono)}
+.enter .n{background:var(--accent-soft);padding:3px 9px;border-radius:999px;font-variant-numeric:tabular-nums}
+.enter .chev{font-size:22px;line-height:1}
+.body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .24s ease}
+.is-open .body{grid-template-rows:1fr}
+.body-inner{overflow:hidden;min-height:0;visibility:hidden;transition:visibility 0s .24s}
+.is-open .body-inner{visibility:visible;transition:visibility 0s 0s}
+.body .prose{padding:0 0 16px 22px}
+.empty{margin:28px 0 0;color:var(--muted);font-style:italic}
+
+.came-from .track{animation:flash 1.4s ease}
+@keyframes flash{from{background:var(--accent-soft)}to{background:var(--bg)}}
+.dragging{-webkit-user-select:none;user-select:none}
+
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:8px;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  border-top:1px solid var(--line);background:var(--bg)}
+.hint{margin:0;min-width:0;font:12px/1.45 var(--mono);color:var(--muted)}
+#flip{flex:none;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer;
+  font:600 12px var(--mono);color:var(--fg)}
+#flip[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+@media (prefers-reduced-motion: reduce){
+  .body,.body-inner,.caret{transition:none}
+  .came-from .track{animation:none}
+}
+</style>
+
+<div class="app">
+  <header class="top">
+    <button id="back" aria-label="Go to parent note" disabled>‹</button>
+    <nav class="crumbs" id="crumbs" aria-label="Path"></nav>
+  </header>
+  <main class="stage" id="stage"></main>
+  <footer class="bar">
+    <p class="hint" id="hint"></p>
+    <button id="flip" aria-pressed="false">Flip swipe</button>
+  </footer>
+</div>
+
+<script>
+const TREE = {slug:'notebook', body:`Example notes. Every note here is a folder with an \`index.md\`, so each one is a place you can step into.
+
+Tap a title to read it in place. Open a note with its › button, or swipe its row left. Swipe right anywhere to go back up a level.
+
+On a keyboard: \`j\` \`k\` move, \`space\` expands, \`l\` opens, \`h\` goes up.`,
+children:[
+ {slug:'cpu-architecture', body:`Notes from working through Hennessy & Patterson, plus whatever rabbit hole I fell into that week.`, children:[
+   {slug:'caches', body:`Small, fast memory close to the core that bets on locality: **temporal** (you'll touch it again) and **spatial** (you'll touch its neighbors).
+
+- L1: tens of KB per core, a few cycles
+- L2: hundreds of KB to a few MB, ~12–15 cycles
+- L3: shared, tens of MB, 40+ cycles
+
+Numbers vary a lot by chip. Treat them as orders of magnitude.`, children:[
+     {slug:'cache-coherence', body:`MESI: every line is Modified, Exclusive, Shared or Invalid. Writing to a Shared line means invalidating every other copy first, which is why two cores hammering one line is slow.
+
+See [[cpu-architecture/caches/false-sharing]].`},
+     {slug:'false-sharing', body:`Two threads write different variables that happen to live on the same 64-byte line. No logical conflict, but the line ping-pongs between cores anyway.
+
+Fix: pad or align hot per-thread data to the line size. In Rust, \`crossbeam_utils::CachePadded\`.`},
+     {slug:'replacement-policies', body:`True LRU is the textbook answer and almost nobody builds it past 4 ways. Real caches use tree-PLRU or RRIP variants.
+
+- TODO: read the RRIP paper properly`}
+   ]},
+   {slug:'pipelining', body:`Split each instruction into stages so several are in flight at once. Classic five: fetch, decode, execute, memory, writeback. Throughput goes up; the latency of one instruction doesn't.`, children:[
+     {slug:'hazards', body:`Three kinds:
+
+- **Structural**: two stages want the same hardware
+- **Data**: an instruction needs a result that isn't written yet
+- **Control**: the next PC is unknown until a branch resolves
+
+Forwarding fixes most data hazards. A load-use still costs a bubble.`},
+     {slug:'branch-prediction', body:`Guess the branch, keep fetching, throw the work away if wrong. Modern predictors are right the vast majority of the time on typical code, which is why the misses on a hot loop still show up in profiles.`, children:[
+       {slug:'spectre', body:`Speculation leaves traces in the cache even after the results are squashed. Variant 1 trains the predictor to run a bounds-checked load out of bounds, then reads the secret back through a timing side channel in [[cpu-architecture/caches]].`}
+     ]}
+   ]},
+   {slug:'memory-ordering', body:`x86 is TSO: a store can be delayed past a later load, and that's about it. ARM is weaker, so code that worked on my laptop breaks on an ARM server. Use acquire/release, not hope.`}
+ ]},
+ {slug:'korean-infosec-law', body:`Statutes go by their common short names here. Check the current text on law.go.kr before trusting any detail in these notes.`, children:[
+   {slug:'pipa', body:`개인정보 보호법, the Personal Information Protection Act. The general privacy statute, enforced by the PIPC (개인정보보호위원회). The 2020 and 2023 amendments moved a lot of what used to live in the Network Act into it.`, children:[
+     {slug:'consent', body:`Consent has to be specific: what's collected, why, how long it's kept, and what happens if you refuse. Sensitive data and unique identifiers need separate consent.
+
+The 2023 amendment pushed away from "consent for everything" by leaning more on other lawful bases.`},
+     {slug:'breach-notification', body:`Notify affected people without delay, and report to the PIPC when the breach is big enough or touches sensitive data. Exact thresholds and deadlines are in the enforcement decree. Look them up rather than memorizing them from here.`}
+   ]},
+   {slug:'network-act', body:`정보통신망법. Network security and service providers: intrusion reporting, spam rules, takedowns of illegal information. Most privacy provisions moved over to [[korean-infosec-law/pipa]].`},
+   {slug:'credit-information-act', body:`신용정보법. Financial-sector data and the MyData framework. Needs its own pass later.`}
+ ]},
+ {slug:'homelab', body:`Machines, services, and the glue between them.`, children:[
+   {slug:'notes-pipeline', body:`This thing. yazi and nvim on the laptop, Syncthing to the server, and a daemon that watches the folder and compiles it into these pages.
+
+- one folder plus \`index.md\` per note
+- sibling order from a numeric prefix
+- served over the tailnet`, children:[
+     {slug:'compile-daemon', body:`Watch, debounce, rebuild the changed note plus its parent's page. Write to a temp file and rename. Ignore \`.syncthing.*.tmp\` and nvim swap files.`},
+     {slug:'swipe-mockup', body:`You're looking at it. Open questions:
+
+- should swiping a leaf do anything?
+- does the parent page need a "came from here" marker?`}
+   ]},
+   {slug:'backups', body:`Still 3-2-1. Nightly to a second disk, weekly offsite. Test a restore every quarter or it doesn't count.`}
+ ]},
+ {slug:'inbox', body:`Unsorted. Everything lands here and gets filed on Sunday, in theory.
+
+- look up what RRIP stands for
+- reread the PIPA consent section
+- buy coffee filters`}
+]};
+
+const nodes = new Map();
+(function index(n, path){
+  n.path = path; n.children = n.children || [];
+  nodes.set(path.join('/'), n);
+  n.children.forEach(c => index(c, [...path, c.slug]));
+})(TREE, []);
+
+const $ = id => document.getElementById(id);
+const stage = $('stage'), crumbs = $('crumbs'), backBtn = $('back'), hint = $('hint'), flipBtn = $('flip');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const key = p => p.join('/');
+const state = {path: [], open: new Set(['inbox']), scroll: {}, flip: false};
+try { state.flip = localStorage.getItem('flip') === '1'; } catch (e) {}
+let busy = false, kidx = -1;
+
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function inline(s){
+  s = esc(s);
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\[\[([^\]]+)\]\]/g, (m, p) => nodes.has(p) ? `<a href="#" class="wl" data-link="${p}">${p.split('/').pop()}</a>` : m);
+  return s;
+}
+function prose(md){
+  return md.trim().split(/\n\s*\n/).map(b => {
+    const lines = b.split('\n');
+    if (lines.every(l => l.startsWith('- '))) return '<ul>' + lines.map(l => '<li>' + inline(l.slice(2)) + '</li>').join('') + '</ul>';
+    return '<p>' + inline(lines.join(' ')) + '</p>';
+  }).join('');
+}
+function rowHTML(c){
+  const k = key(c.path), open = state.open.has(k), n = c.children.length, id = 'b-' + k.replace(/\//g, '-');
+  return `<li class="row${open ? ' is-open' : ''}${n ? ' has-kids' : ''}" data-key="${k}">
+    <div class="reveal" aria-hidden="true"><span>open ›</span></div>
+    <div class="track">
+      <div class="row-head">
+        <button class="toggle" aria-expanded="${open}" aria-controls="${id}"><span class="caret" aria-hidden="true"></span><span class="t">${esc(c.slug)}</span></button>
+        ${n ? `<button class="enter" aria-label="Open ${esc(c.slug)}, ${n} notes inside"><span class="n">${n}</span><span class="chev" aria-hidden="true">›</span></button>` : ''}
+      </div>
+      <div class="body" id="${id}"><div class="body-inner"><div class="prose">${prose(c.body)}</div></div></div>
+    </div></li>`;
+}
+function renderView(node){
+  const v = document.createElement('div');
+  v.className = 'view';
+  const kids = node.children;
+  v.innerHTML = `<div class="inner">
+    <p class="eyebrow">${node.path.length ? esc(key(node.path)) + '/' : '~/notebook/'}index.md</p>
+    <h1>${esc(node.slug)}</h1>
+    <div class="prose">${prose(node.body)}</div>
+    ${kids.length
+      ? `<p class="eyebrow list-head">${kids.length} ${kids.length === 1 ? 'note' : 'notes'} inside</p><ul class="rows">${kids.map(rowHTML).join('')}</ul>`
+      : `<p class="empty">No notes inside this one yet.</p>`}
+  </div>`;
+  return v;
+}
+function renderCrumbs(){
+  const parts = [{label:'notebook'}, ...state.path.map(s => ({label:s}))];
+  crumbs.innerHTML = parts.map((p, i) => i === parts.length - 1
+    ? `<span class="crumb cur" aria-current="page">${esc(p.label)}</span>`
+    : `<button class="crumb" data-depth="${i}">${esc(p.label)}</button><span class="sep">/</span>`).join('');
+  crumbs.scrollLeft = crumbs.scrollWidth;
+  backBtn.disabled = !state.path.length;
+}
+function renderChrome(){
+  document.documentElement.toggleAttribute('data-flip', state.flip);
+  flipBtn.setAttribute('aria-pressed', state.flip);
+  hint.textContent = state.flip
+    ? 'Tap a title to read · › or swipe → on a row to open · swipe ← to go up'
+    : 'Tap a title to read · › or swipe ← on a row to open · swipe → to go up';
+}
+const cur = () => stage.querySelector('.view:last-child');
+const enterSign = () => state.flip ? 1 : -1; // finger direction (dx sign) that opens a note
+
+function navigate(newPath, dir, fromOffset = 0, peek = null, peekProgress = 0){
+  if (busy) return;
+  const old = cur();
+  const prevKey = key(state.path);
+  state.scroll[prevKey] = old.scrollTop;
+  state.path = newPath; kidx = -1;
+  const nv = peek || renderView(nodes.get(key(newPath)));
+  if (!peek){ dir === 'out' ? stage.insertBefore(nv, old) : stage.appendChild(nv); }
+  nv.scrollTop = dir === 'out' ? (state.scroll[key(newPath)] || 0) : 0;
+  renderCrumbs();
+  const finish = () => {
+    old.remove(); nv.style.transform = ''; nv.style.opacity = ''; busy = false;
+    if (dir === 'out'){
+      const r = nv.querySelector(`.row[data-key="${prevKey}"]`);
+      if (r){ r.scrollIntoView({block:'nearest'}); r.classList.add('came-from'); setTimeout(() => r.classList.remove('came-from'), 1500); }
+    }
+  };
+  if (reduced){ finish(); return; }
+  busy = true;
+  const w = stage.clientWidth, s = enterSign();
+  const opts = {duration: 280, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards'};
+  let a;
+  if (dir === 'in'){
+    old.animate([{transform:`translateX(${fromOffset}px)`}, {transform:`translateX(${s*0.3*w}px)`, opacity:.5}], opts);
+    a = nv.animate([{transform:`translateX(${-s*w}px)`}, {transform:'translateX(0)'}], opts);
+  } else {
+    old.animate([{transform:`translateX(${fromOffset}px)`}, {transform:`translateX(${-s*w}px)`}], opts);
+    a = nv.animate([{transform:`translateX(${s*0.3*w*(1-peekProgress)}px)`, opacity:.5 + .5*peekProgress}, {transform:'translateX(0)', opacity:1}], opts);
+  }
+  a.finished.then(() => { nv.getAnimations().forEach(x => x.cancel()); finish(); });
+}
+const goIn = k => navigate(nodes.get(k).path, 'in');
+const goUp = () => { if (state.path.length) navigate(state.path.slice(0, -1), 'out'); };
+
+function toggleRow(li){
+  const open = li.classList.toggle('is-open');
+  li.querySelector('.toggle').setAttribute('aria-expanded', open);
+  open ? state.open.add(li.dataset.key) : state.open.delete(li.dataset.key);
+}
+
+let suppressClick = false;
+stage.addEventListener('click', e => {
+  if (suppressClick){ e.preventDefault(); e.stopPropagation(); return; }
+  const link = e.target.closest('.wl');
+  if (link){ e.preventDefault(); goIn(link.dataset.link); return; }
+  const li = e.target.closest('.row');
+  if (!li) return;
+  if (e.target.closest('.enter')) goIn(li.dataset.key);
+  else if (e.target.closest('.toggle')) toggleRow(li);
+}, true);
+crumbs.addEventListener('click', e => {
+  const b = e.target.closest('button.crumb');
+  if (b) navigate(state.path.slice(0, +b.dataset.depth), 'out');
+});
+backBtn.addEventListener('click', goUp);
+flipBtn.addEventListener('click', () => {
+  state.flip = !state.flip;
+  try { localStorage.setItem('flip', state.flip ? '1' : '0'); } catch (e) {}
+  renderChrome();
+});
+
+/* Swipe gestures */
+let g = null;
+const rubber = d => d < 90 ? d : 90 + (d - 90) * 0.35;
+stage.addEventListener('pointerdown', e => {
+  if (busy || e.button !== 0) return;
+  g = {id:e.pointerId, x:e.clientX, y:e.clientY, row:e.target.closest('.row'), mode:null, dx:0};
+});
+stage.addEventListener('pointermove', e => {
+  if (!g || e.pointerId !== g.id) return;
+  const dx = e.clientX - g.x, dy = e.clientY - g.y, s = enterSign();
+  if (g.mode === null){
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.3){
+      if (Math.sign(dx) === s && g.row && g.row.classList.contains('has-kids')) g.mode = 'row';
+      else if (Math.sign(dx) === -s && state.path.length){
+        g.mode = 'view';
+        g.view = cur();
+        g.peek = renderView(nodes.get(key(state.path.slice(0, -1))));
+        stage.insertBefore(g.peek, g.view);
+        g.peek.scrollTop = state.scroll[key(state.path.slice(0, -1))] || 0;
+      } else g.mode = 'none';
+      if (g.mode !== 'none'){ try { stage.setPointerCapture(e.pointerId); } catch (err) {} stage.classList.add('dragging'); }
+    } else if (Math.abs(dy) > 10) g.mode = 'none';
+  }
+  if (g.mode === 'row'){
+    const d = Math.max(0, dx * s);
+    g.dx = s * rubber(d);
+    g.row.querySelector('.track').style.transform = `translateX(${g.dx}px)`;
+    g.row.querySelector('.reveal').style.opacity = Math.min(1, d / 70);
+  } else if (g.mode === 'view'){
+    const w = stage.clientWidth, d = Math.min(w, Math.max(0, -dx * s));
+    g.dx = -s * d; g.p = d / w;
+    g.view.style.transform = `translateX(${g.dx}px)`;
+    g.peek.style.transform = `translateX(${s*0.3*w*(1-g.p)}px)`;
+    g.peek.style.opacity = .5 + .5 * g.p;
+  }
+});
+function endGesture(e){
+  if (!g || e.pointerId !== g.id) return;
+  const t = g; g = null;
+  stage.classList.remove('dragging');
+  if (!t.mode || t.mode === 'none') return;
+  suppressClick = true; setTimeout(() => { suppressClick = false; }, 80);
+  const commit = e.type === 'pointerup';
+  if (t.mode === 'row'){
+    const track = t.row.querySelector('.track'), reveal = t.row.querySelector('.reveal');
+    if (commit && Math.abs(t.dx) > 70){ goIn(t.row.dataset.key); return; }
+    track.style.transform = ''; reveal.style.opacity = '';
+    if (!reduced) track.animate([{transform:`translateX(${t.dx}px)`}, {transform:'translateX(0)'}], {duration:200, easing:'cubic-bezier(.2,.7,.2,1)'});
+  } else if (t.mode === 'view'){
+    const w = stage.clientWidth;
+    if (commit && Math.abs(t.dx) > Math.min(110, w * 0.28)){
+      navigate(state.path.slice(0, -1), 'out', t.dx, t.peek, t.p || 0);
+      return;
+    }
+    const s = enterSign(), opts = {duration:200, easing:'cubic-bezier(.2,.7,.2,1)'};
+    t.view.style.transform = '';
+    const done = () => t.peek.remove();
+    if (reduced){ done(); return; }
+    t.view.animate([{transform:`translateX(${t.dx}px)`}, {transform:'translateX(0)'}], opts).finished.then(done);
+  }
+}
+stage.addEventListener('pointerup', endGesture);
+stage.addEventListener('pointercancel', endGesture);
+
+/* yazi-ish keys */
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || busy) return;
+  const rows = [...cur().querySelectorAll('.row')];
+  const focusRow = i => {
+    kidx = Math.max(0, Math.min(rows.length - 1, i));
+    rows.forEach((r, j) => r.classList.toggle('kfocus', j === kidx));
+    rows[kidx].scrollIntoView({block:'nearest'});
+  };
+  const onButton = e.target.closest && e.target.closest('button');
+  switch (e.key){
+    case 'j': case 'ArrowDown': if (rows.length){ e.preventDefault(); focusRow(kidx + 1); } break;
+    case 'k': case 'ArrowUp': if (rows.length){ e.preventDefault(); focusRow(kidx - 1); } break;
+    case 'l': case 'ArrowRight': if (rows[kidx] && rows[kidx].classList.contains('has-kids')) goIn(rows[kidx].dataset.key); break;
+    case 'h': case 'ArrowLeft': goUp(); break;
+    case ' ': case 'Enter': if (!onButton && rows[kidx]){ e.preventDefault(); toggleRow(rows[kidx]); } break;
+  }
+});
+
+renderChrome();
+renderCrumbs();
+stage.appendChild(renderView(TREE));
+</script>

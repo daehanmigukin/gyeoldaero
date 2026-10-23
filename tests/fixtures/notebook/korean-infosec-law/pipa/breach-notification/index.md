@@ -1,0 +1,1 @@
+Notify affected people without delay, and report to the PIPC when the breach is big enough or touches sensitive data. Exact thresholds and deadlines are in the enforcement decree. Look them up rather than memorizing them from here.

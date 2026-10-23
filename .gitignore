@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+*.snap.new
+
+# e2e
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/bootstrap-in-progress
+
+# editors and OS
+*.swp
+*~
+.DS_Store
