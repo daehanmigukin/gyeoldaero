@@ -12,10 +12,7 @@ and read it anywhere from a server you run yourself.
 
 **배움의 결을 따라가는 노트.**
 
-결대로는 공부한 것을 잘게 나누고, 내 방식대로 다시 엮는 터미널 노트예요. 모든 노트는 폴더가
-되고, 조각들이 차곡차곡 쌓이다 보면 어느새 전체의 결이 보여요. 생각이 어디서 갈라지고
-어디로 이어지는지가요. neovim으로 쓰고 yazi로 둘러보고, 직접 돌리는 서버 덕분에
-휴대폰에서도 언제든 읽을 수 있어요.
+'결대로'는 공부한 것을 잘게 나누고, 내 방식으로 다시 엮는 터미널 노트예요. 모든 노트는 폴더가 되고, 조각들이 차곡차곡 쌓이다 보면 어느새 전체의 결이 보여요. 생각이 어디서 갈라지고 어디로 이어지는지가요. neovim으로 쓰고 yazi로 둘러보고, 직접 돌리는 서버 덕분에 휴대폰에서도 언제든 읽을 수 있어요.
 
 > **Status: early development.** Nothing here is usable yet. Follow the plan in
 > [`docs/prd/`](docs/prd/README.md).
