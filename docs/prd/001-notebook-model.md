@@ -99,7 +99,9 @@ in a notebook in plain language, exiting non-zero on errors.
       differing only in case resolves. *(unit)*
 - [ ] AC12 — Config: defaults when `gyeoldaero.toml` is absent; a relative `build.out`
       resolves against the notebook root; a `build.out` that is the notebook root, one of
-      its ancestors, or the home directory or one of its ancestors is an error. *(unit)*
+      its ancestors, or the home directory or one of its ancestors is an error; so is a
+      `build.out` inside the notebook whose folder holds notes (an `index.md` in it or
+      below it). *(unit)*
 - [ ] AC13 — Robustness: below the root, an unreadable folder or file is an error
       diagnostic and the scan continues; nesting deeper than 64 levels is an error and the
       deeper folders are skipped (no stack overflow); an `index.md` over 8 MiB is an error
@@ -160,6 +162,10 @@ Answered by Ellie on 2026-10-23, on code- and security-review findings:
 - **Folder-swap race**: narrowed in PRD-001 (re-check `symlink_metadata` before
   `read_dir`; files are opened and their inode compared with the `lstat` result). Closing
   it fully needs `openat`/`O_NOFOLLOW` through a crate; see Notes.
+- **`build.out` pointing at notes**: a `build.out` inside the notebook whose folder (or
+  anything below it) holds an `index.md` is a config error, so a synced config can't hide
+  a subtree from the model or point the build at notes (AC12). The output-dir marker file
+  is a PRD-002 requirement, not just a note (PRD-002 Requirement 5).
 - **Diagnostics carry the folder on disk** (`Diagnostic::dir`, `Note::dir`) and `check`
   shows it next to the note path when they differ (Requirement 2 and 4, AC14).
 
@@ -282,8 +288,8 @@ where something could break silently, error only when a note can't be understood
   (capability-based `Dir`, which can't escape its root by construction) against `rustix`
   (thin `openat` wrappers, more manual). The `O_NONBLOCK` part also fixes a FIFO swapped
   in for `index.md` blocking the read.
-- **Output dir writes.** Only write into, or clean, a directory that is empty or holds a
-  gyeoldaero marker file (security review). The `build.out` check in `Config::load` is
+- **Output dir writes** (now PRD-002 Requirement 5). Only write into, or clean, a
+  directory that is empty or holds a gyeoldaero marker file (security review). The `build.out` check in `Config::load` is
   only a backstop: a synced `gyeoldaero.toml` can still name `~/.ssh` or reach outside
   through a symlink inside the notebook. Don't trust a marker found inside the notebook
   (a synced folder can plant one): tie it to a random token recorded outside the

@@ -189,7 +189,10 @@ out = "~/.cache/gyeoldaero/notebook-1a2b3c4d"   # default, see below
 
 A `build.out` that is the notebook root, an ancestor of it, the home directory or an
 ancestor of it is a config error: a synced notebook must not be able to point the build at
-the user's files. `gyeoldaero.toml` over 8 MiB is a config error.
+the user's files. So is a `build.out` inside the notebook whose folder (or anything below
+it) holds an `index.md`: it would hide those notes from the scan. The build writes a marker
+file into the output directory it creates and refuses to build into, or delete anything
+from, a non-empty directory without it (PRD-002). `gyeoldaero.toml` over 8 MiB is a config error.
 
 The default `out` is `<cache dir>/gyeoldaero/<folder-name>-<hash>`: the cache dir comes
 from `dirs::cache_dir()` (`$XDG_CACHE_HOME` or `~/.cache` on Linux, `~/Library/Caches` on
