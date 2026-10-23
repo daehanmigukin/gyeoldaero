@@ -118,6 +118,29 @@ fn hidden_directory_without_index_md_gives_no_warning() {
     assert!(diags.is_empty(), "{:?}", show(&diags));
 }
 
+// PRD-001 AC4
+#[cfg(unix)]
+#[test]
+fn ignored_names_that_are_not_utf8_are_still_ignored() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    for raw in [&b".\xffswp"[..], b"x\xff.swp", b"\xff~", b"~syncthing~\xff"] {
+        for parent in ["", "note"] {
+            let nb = TempNotebook::new();
+            nb.note("note", "Note.\n");
+            let path = nb.path(parent).join(OsStr::from_bytes(raw));
+            std::fs::write(&path, "x").expect("write");
+            let (_, diags) = nb.load();
+            assert!(
+                diags.is_empty(),
+                "{raw:?} under {parent:?}: {:?}",
+                show(&diags)
+            );
+        }
+    }
+}
+
 fn config_with_out(root: &Path, out: &Path) -> Config {
     let mut config = Config::load(root).expect("default config loads");
     config.build.out = out.to_path_buf();

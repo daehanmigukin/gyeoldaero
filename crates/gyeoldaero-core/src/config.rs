@@ -105,6 +105,7 @@ impl Config {
         self.diagnostics.push(Diagnostic {
             level: Level::Warning,
             path: NotePath::default(),
+            dir: PathBuf::new(),
             message,
         });
     }

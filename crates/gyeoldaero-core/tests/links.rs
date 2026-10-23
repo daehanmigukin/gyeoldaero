@@ -159,6 +159,15 @@ fn links_resolve_absolute_and_relative() {
 
 // PRD-001 AC8
 #[test]
+fn labels_are_kept_as_written() {
+    let (nb, _) = notebook_with_source("a", "[[a/sibling|use `x` *here*]] [[b|b]]\n");
+    let note = nb.get(nb.by_path("a").expect("a"));
+    let labels: Vec<Option<&str>> = note.links.iter().map(|l| l.label.as_deref()).collect();
+    assert_eq!(labels, [Some("use `x` *here*"), None]);
+}
+
+// PRD-001 AC8
+#[test]
 fn links_are_kept_in_body_order() {
     let (nb, diags) = notebook_with_source(
         "a",

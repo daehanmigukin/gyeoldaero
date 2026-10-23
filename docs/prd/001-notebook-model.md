@@ -263,8 +263,9 @@ where something could break silently, error only when a note can't be understood
   `iter` (depth first, sibling order), `Note::dir`, `notebook::ASSET_EXTENSIONS`,
   `links::markdown_options()` (the comrak parse options, so the renderer parses links
   exactly as core does) and `CONFIG_FILE`.
-- **Labels.** A label equal to the target (`[[a|a]]`) is stored as no label. Label text
-  includes inline code (`` [[a|use `x`]] `` → ``use x``).
+- **Labels.** A label equal to the target (`[[a|a]]`) is stored as no label. comrak keeps
+  label text as written apart from backslash escapes: no inline formatting, so
+  `` [[a|use `x`]] `` has the label `` use `x` ``.
 - **Error positions.** YAML errors report the line and column in `index.md`, not in the
   frontmatter block.
 - **Default output name** is cut to 200 bytes (on a character boundary) before the hash,

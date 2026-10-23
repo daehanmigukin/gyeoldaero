@@ -125,6 +125,29 @@ fn malformed_frontmatter_is_an_error_and_the_whole_file_is_the_body() {
 
 // PRD-001 AC7
 #[test]
+fn yaml_error_positions_are_lines_of_index_md() {
+    // Both errors are on line 3 of the file (line 2 of the YAML block).
+    let cases: &[(&str, &str)] = &[
+        (
+            "unclosed flow sequence",
+            "---\ntitle: [unclosed\n---\nBody.\n",
+        ),
+        (
+            "bad indentation",
+            "---\ntitle: a\n  bad: indent\n---\nBody.\n",
+        ),
+    ];
+    for (case, contents) in cases {
+        let (_, diags) = load_note(contents);
+        let message = &errors(&diags)[0].message;
+        assert!(message.contains("line 3"), "{case}: {message}");
+        assert!(!message.contains("line 2"), "{case}: {message}");
+        assert!(!message.contains("line 1"), "{case}: {message}");
+    }
+}
+
+// PRD-001 AC7
+#[test]
 fn opening_dashes_without_closing_are_a_warning_and_the_whole_file_is_the_body() {
     let cases: &[(&str, &str)] = &[
         ("looks like frontmatter", "---\ntitle: T\nBody.\n"),

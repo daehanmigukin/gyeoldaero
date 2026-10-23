@@ -258,6 +258,7 @@ fn fixture_order_prefixes_match() {
         let note = nb.get(nb.by_path(path).unwrap_or_else(|| panic!("{path} exists")));
         assert_eq!(note.order, Some(*order), "{path}");
         assert_eq!(note.dir_name, *dir, "{path}");
+        assert!(note.dir.ends_with(dir), "{path}: {:?}", note.dir);
     }
     for id in common::all_notes(&nb) {
         let note = nb.get(id);

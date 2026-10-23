@@ -167,10 +167,12 @@ fn broken_fixture_groups_diagnostics_by_note_path() {
             "{other:?} printed inside the `stray` group:\n{all}"
         );
     }
-    // The group is introduced by (or each line carries) the note path `stray`.
-    assert!(
-        lines[..=a].iter().any(|l| l.contains("stray")),
-        "note path `stray` not shown for its diagnostics:\n{all}"
+    // The group is headed by the note path `stray` on the line just above it.
+    assert!(a > 0, "no header above the `stray` group:\n{all}");
+    assert_eq!(
+        lines[a - 1].trim(),
+        "stray",
+        "header of the `stray` group:\n{all}"
     );
 }
 
@@ -192,6 +194,78 @@ fn unusable_root_exits_two() {
             run.stderr.contains(name),
             "{case}: stderr should say which path is unusable:\n{}",
             run.stderr
+        );
+    }
+}
+
+// PRD-001 AC14
+#[test]
+fn group_header_shows_the_folder_on_disk_when_it_differs() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    std::fs::write(dir.path().join("index.md"), "Root.\n").expect("write");
+    std::fs::create_dir_all(dir.path().join("010-a/020-b")).expect("mkdir");
+    std::fs::write(dir.path().join("010-a/index.md"), "A.\n").expect("write");
+    std::fs::write(dir.path().join("010-a/020-b/index.md"), "[[nowhere]]\n").expect("write");
+    let run = check_path(dir.path());
+    assert_eq!(run.code, Some(1), "output:\n{}", run.all());
+    assert!(
+        run.stdout.lines().any(|l| l == "a/b  (010-a/020-b)"),
+        "output:\n{}",
+        run.all()
+    );
+}
+
+// PRD-001 AC14
+#[test]
+fn malformed_config_exits_two_and_names_the_file() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    std::fs::write(dir.path().join("index.md"), "Root.\n").expect("write");
+    std::fs::write(dir.path().join("gyeoldaero.toml"), "name = [unclosed\n").expect("write");
+    let run = check_path(dir.path());
+    assert_eq!(run.code, Some(2), "output:\n{}", run.all());
+    assert!(run.stderr.contains("gyeoldaero.toml"), "{}", run.stderr);
+    assert!(
+        !run.stderr.contains("Pass the folder that holds your notes"),
+        "wrong hint for a config error:\n{}",
+        run.stderr
+    );
+}
+
+// PRD-001 AC14
+#[cfg(unix)]
+#[test]
+fn control_and_bidi_characters_are_escaped_in_output() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    std::fs::write(dir.path().join("index.md"), "Root.\n").expect("write");
+    let evil = dir
+        .path()
+        .join(OsStr::from_bytes(b"a\x1b[2Jb\nerror: fake\x08\x07"));
+    std::fs::create_dir(&evil).expect("mkdir");
+    std::fs::write(
+        evil.join("index.md"),
+        "[[p\rq\u{9b}x\u{202e}y]] [[z\u{2066}w]]\n",
+    )
+    .expect("write");
+    std::fs::write(dir.path().join("stray\x1b]52;c;aGk=\x07.md"), "x\n").expect("write");
+
+    let run = check_path(dir.path());
+    let all = run.all();
+    assert_eq!(run.code, Some(1), "output:\n{all}");
+    for bad in [
+        '\x1b', '\r', '\x08', '\x07', '\u{9b}', '\u{202e}', '\u{2066}',
+    ] {
+        assert!(!all.contains(bad), "{bad:?} reached the terminal:\n{all:?}");
+    }
+    // No forged lines: every line is a header, an indented diagnostic, blank, or the
+    // summary.
+    let _ = summary(&run);
+    for line in run.stdout.lines() {
+        assert!(
+            !line.starts_with("error:") && !line.starts_with("warning:"),
+            "forged line {line:?} in:\n{all}"
         );
     }
 }

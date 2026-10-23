@@ -1,6 +1,7 @@
 //! Content problems found while loading a notebook.
 
 use std::fmt;
+use std::path::PathBuf;
 
 use crate::notebook::NotePath;
 
@@ -20,6 +21,9 @@ pub struct Diagnostic {
     pub level: Level,
     /// The note the problem belongs to.
     pub path: NotePath,
+    /// That note's folder relative to the notebook root, as on disk (empty for the root).
+    /// Tells apart notes whose slug paths clash.
+    pub dir: PathBuf,
     /// A plain sentence saying what is wrong and how to fix it.
     pub message: String,
 }
@@ -55,6 +59,7 @@ mod tests {
         let d = Diagnostic {
             level: Level::Warning,
             path: NotePath::default(),
+            dir: PathBuf::new(),
             message: "Something.".to_owned(),
         };
         assert_eq!(d.to_string(), "warning: /: Something.");

@@ -61,6 +61,8 @@ pub struct Note {
     pub order: Option<u32>,
     /// Folder name as on disk.
     pub dir_name: String,
+    /// Folder relative to the notebook root, as on disk (empty for the root).
+    pub dir: PathBuf,
     /// Path from the root.
     pub path: NotePath,
     /// `title` from frontmatter.
@@ -126,6 +128,7 @@ impl Notebook {
             order: None,
             dir_name: root_name,
             path: NotePath::default(),
+            dir: PathBuf::new(),
             title: None,
             body: String::new(),
             frontmatter: serde_yaml_ng::Mapping::new(),
@@ -236,6 +239,7 @@ impl Notebook {
                             diagnostics.push(Diagnostic {
                                 level: Level::Warning,
                                 path,
+                                dir: PathBuf::new(),
                                 message: format!(
                                     "The link [[{}]] uses order prefixes. Link by slug instead, e.g. [[{slug_path}]]: prefixed links break when notes are renumbered.",
                                     link.target
@@ -246,6 +250,7 @@ impl Notebook {
                     None => diagnostics.push(Diagnostic {
                         level: Level::Error,
                         path,
+                        dir: PathBuf::new(),
                         message: format!(
                             "The link [[{}]] doesn't point to any note. Check the slugs in the path (relative links start with ./ or ../), or create the note.",
                             link.target
@@ -303,6 +308,7 @@ impl Scanner {
         self.diagnostics.push(Diagnostic {
             level,
             path,
+            dir: PathBuf::new(),
             message,
         });
     }
@@ -432,6 +438,7 @@ impl Scanner {
                     order,
                     dir_name: dir_name.clone(),
                     path: parent_path.child(slug),
+                    dir: PathBuf::new(),
                     title: None,
                     body: String::new(),
                     frontmatter: serde_yaml_ng::Mapping::new(),
@@ -539,6 +546,7 @@ fn empty_note() -> Note {
         order: None,
         dir_name: String::new(),
         path: NotePath::default(),
+        dir: PathBuf::new(),
         title: None,
         body: String::new(),
         frontmatter: serde_yaml_ng::Mapping::new(),

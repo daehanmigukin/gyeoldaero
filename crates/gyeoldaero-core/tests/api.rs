@@ -141,6 +141,39 @@ fn relative_build_out_inside_the_notebook_is_ignored_when_scanning() {
     assert!(diags.is_empty(), "{:?}", common::show(&diags));
 }
 
+// PRD-001 AC12
+#[test]
+fn build_out_pointing_at_the_notebook_or_home_is_an_error() {
+    // (case, `out` as written)
+    let cases: &[(&str, &str)] = &[
+        ("the root itself", "."),
+        ("the root, spelled with a slash", "./"),
+        ("the parent", ".."),
+        ("the file system root", "/"),
+        ("home", "~"),
+    ];
+    for (case, out) in cases {
+        let nb = TempNotebook::new();
+        nb.file("gyeoldaero.toml", &format!("[build]\nout = \"{out}\"\n"));
+        let err = Config::load(nb.root()).expect_err(case);
+        assert!(
+            matches!(err, gyeoldaero_core::CoreError::Config { .. }),
+            "{case}: {err:?}"
+        );
+        assert!(err.to_string().contains("build.out"), "{case}: {err}");
+    }
+}
+
+// PRD-001 AC12
+#[test]
+fn build_out_dot_dot_segments_resolve_lexically() {
+    let nb = TempNotebook::new();
+    nb.file("gyeoldaero.toml", "[build]\nout = \"sub/../site\"\n");
+    let config = Config::load(nb.root()).expect("config");
+    let root = std::path::absolute(nb.root()).expect("absolute root");
+    assert_eq!(config.build.out, root.join("site"));
+}
+
 // PRD-001 AC7 (CRLF everywhere)
 #[test]
 fn config_with_crlf_line_endings_loads() {
