@@ -1,7 +1,7 @@
 ---
 id: PRD-001
 title: Notebook model and `gyeoldaero check`
-status: In Progress
+status: In Review
 depends_on: [PRD-000]
 branch: prd/001-notebook-model
 ---
@@ -72,43 +72,43 @@ in a notebook in plain language, exiting non-zero on errors.
 
 ## Acceptance criteria
 
-- [ ] AC1 — With zero diagnostics, the fixture loads with the same notes, nesting and
+- [x] AC1 — With zero diagnostics, the fixture loads with the same notes, nesting and
       bodies as the mockup's `TREE`; sibling order follows AC2.
       *(unit, against `tests/fixtures/notebook`)*
-- [ ] AC2 — Ordering: prefixed by number, then unprefixed by natural sort, ties by slug.
+- [x] AC2 — Ordering: prefixed by number, then unprefixed by natural sort, ties by slug.
       *(unit, table-driven)*
-- [ ] AC3 — Duplicate slugs among siblings produce an error diagnostic naming both folders. *(unit)*
-- [ ] AC4 — Every ignore rule in the architecture doc is covered (hidden, `.git`,
+- [x] AC3 — Duplicate slugs among siblings produce an error diagnostic naming both folders. *(unit)*
+- [x] AC4 — Every ignore rule in the architecture doc is covered (hidden, `.git`,
       Syncthing temp files, `4913`, swap files, output dir inside notebook). *(unit)*
-- [ ] AC5 — Symlinks are not followed and produce a warning. *(unit, unix-only test)*
-- [ ] AC6 — Directory without `index.md` → note with empty body + warning; stray `.md`
+- [x] AC5 — Symlinks are not followed and produce a warning. *(unit, unix-only test)*
+- [x] AC6 — Directory without `index.md` → note with empty body + warning; stray `.md`
       files → warning. *(unit)*
-- [ ] AC7 — Frontmatter: `title` used; unknown fields preserved; malformed YAML → error
+- [x] AC7 — Frontmatter: `title` used; unknown fields preserved; malformed YAML → error
       and the whole file becomes the body; an opening `---` with no closing `---` → warning
       and the whole file is the body; CRLF line endings are accepted; a numeric or boolean
       `title` becomes a string, a list or map `title` is an error. *(unit)*
-- [ ] AC8 — Links: absolute, `./`, `../`, with labels; broken link → error; links in code
+- [x] AC8 — Links: absolute, `./`, `../`, with labels; broken link → error; links in code
       are ignored; a link written with order prefixes (`[[010-b]]`) resolves and gives a
       warning telling the user to link by slug. *(unit)*
-- [ ] AC9 — `gyeoldaero check` output and exit codes match Requirement 4 on a fixture with
+- [x] AC9 — `gyeoldaero check` output and exit codes match Requirement 4 on a fixture with
       known problems (`tests/fixtures/broken/`). *(cli)*
-- [ ] AC10 — Performance target met. *(ignored test or bench, run in the PR description)*
-- [ ] AC11 — Unicode: a Hangul slug loads with no diagnostic; an NFD-named folder resolves
+- [x] AC10 — Performance target met. *(ignored test or bench, run in the PR description)*
+- [x] AC11 — Unicode: a Hangul slug loads with no diagnostic; an NFD-named folder resolves
       from an NFC link and an NFC `by_path` lookup; NFC and NFD spellings of the same slug
       among siblings are reported as duplicates; so are `Caches` and `caches`; a link
       differing only in case resolves. *(unit)*
-- [ ] AC12 — Config: defaults when `gyeoldaero.toml` is absent; a relative `build.out`
+- [x] AC12 — Config: defaults when `gyeoldaero.toml` is absent; a relative `build.out`
       resolves against the notebook root; a `build.out` that is the notebook root, one of
       its ancestors, or the home directory or one of its ancestors is an error; so is a
       `build.out` inside the notebook whose folder holds notes (an `index.md` in it or
       below it). *(unit)*
-- [ ] AC13 — Robustness: below the root, an unreadable folder or file is an error
+- [x] AC13 — Robustness: below the root, an unreadable folder or file is an error
       diagnostic and the scan continues; nesting deeper than 64 levels is an error and the
       deeper folders are skipped (no stack overflow); an `index.md` over 8 MiB is an error
       with an empty body; a folder whose slug would start with `.` (`001-..`, `002-.git`)
       is an error and skipped; an `index.md` that is not a regular file when opened is not
       read. *(unit)*
-- [ ] AC14 — Diagnostics carry the note's folder on disk; `check` output escapes control
+- [x] AC14 — Diagnostics carry the note's folder on disk; `check` output escapes control
       and bidi characters, and a malformed `gyeoldaero.toml` exits 2 naming the file.
       *(unit, cli)*
 
