@@ -1,5 +1,7 @@
 //! The `gyeoldaero` binary: argument parsing and subcommand wiring.
 
+mod check;
+
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -19,7 +21,10 @@ enum Command {
     /// Build, watch and serve a notebook.
     Serve,
     /// Report problems in a notebook.
-    Check,
+    Check {
+        /// Notebook root. Defaults to the current directory.
+        path: Option<std::path::PathBuf>,
+    },
     /// Create a note (folder + index.md).
     New,
 }
@@ -30,7 +35,7 @@ impl Command {
         match self {
             Command::Build => "PRD-002",
             Command::Serve => "PRD-005",
-            Command::Check => "PRD-001",
+            Command::Check { .. } => "PRD-001",
             Command::New => "PRD-006",
         }
     }
@@ -38,8 +43,13 @@ impl Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    eprintln!("not implemented yet ({})", cli.command.prd());
-    ExitCode::from(2)
+    match cli.command {
+        Command::Check { path } => check::run(path.as_deref()),
+        other => {
+            eprintln!("not implemented yet ({})", other.prd());
+            ExitCode::from(2)
+        }
+    }
 }
 
 #[cfg(test)]
