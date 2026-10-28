@@ -6,7 +6,7 @@ front matter. Only Ellie moves a PRD to `Accepted` or `Deferred`.
 | PRD | Title | Status | Depends on |
 |---|---|---|---|
 | [000](000-repo-bootstrap.md) | Repository bootstrap | Shipped | — |
-| [001](001-notebook-model.md) | Notebook model and `gyeoldaero check` | In Review | 000 |
+| [001](001-notebook-model.md) | Notebook model and `gyeoldaero check` | Shipped | 000 |
 | [002](002-static-renderer.md) | Static renderer and `gyeoldaero build` | Draft | 001 |
 | [003](003-interaction-layer.md) | Interaction layer (`gyeoldaero.js`) and e2e tests | Draft | 002 |
 | [004](004-build-and-watch.md) | Watching and incremental rebuilds | Draft | 002 |
