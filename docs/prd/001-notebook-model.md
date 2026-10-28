@@ -1,7 +1,7 @@
 ---
 id: PRD-001
 title: Notebook model and `gyeoldaero check`
-status: In Review
+status: Shipped
 depends_on: [PRD-000]
 branch: prd/001-notebook-model
 ---

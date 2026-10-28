@@ -96,3 +96,8 @@ all without JavaScript.
 
 - Should the root heading show the notebook `name` from config or the root folder slug?
   (Default proposal: `name`.)
+
+- Duplicate slugs: PRD-001 keeps every clashing note in the tree with the same `NotePath`,
+  so two pages would render to the same output file. Should the build refuse to run while
+  any slug clash exists? (Default proposal: yes, refuse to build, using the clash errors
+  as the message.)
